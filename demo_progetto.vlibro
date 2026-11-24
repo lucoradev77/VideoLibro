@@ -1,0 +1,113 @@
+{
+  "title": "Il Manoscritto di Pietra",
+  "author": "Archivio VideoLibro",
+  "source_file": "demo_assets\\Il_Manoscritto_di_Pietra.docx",
+  "settings": {
+    "resolution": "1280x720",
+    "fps": 30,
+    "tts_engine": "edge-tts",
+    "tts_voice": "it-IT-DiegoNeural",
+    "tts_rate": "+0%",
+    "text_style": "Libro Cinematografico",
+    "font_size": 40,
+    "global_bg_audio_path": "demo_assets\\ambient_sottofondo.wav",
+    "global_bg_audio_volume": 0.2,
+    "auto_ducking": true,
+    "ducking_factor": 0.35,
+    "accent_color": "#E0B46A",
+    "bg_fallback_color": "#12151E"
+  },
+  "chapters": [
+    {
+      "id": "1c509998dd",
+      "title": "Capitolo I - La Biblioteca Sommersa",
+      "subtitle": "",
+      "show_title_card": true,
+      "title_card_duration": 3.5,
+      "default_media_path": "demo_assets\\bg_biblioteca.jpg",
+      "default_media_type": "image",
+      "bg_audio_path": "demo_assets\\ambient_sottofondo.wav",
+      "bg_audio_volume": 0.25,
+      "scenes": [
+        {
+          "id": "a2ed9d3f4a",
+          "text": "Quando Elena aprì la porta di quercia, l'odore di pergamena antica e polvere d'oro riempì la stanza silenziosa. Sul tavolo di marmo riposava un manoscritto cucito a mano.",
+          "media_path": "",
+          "media_type": "none",
+          "ken_burns": "zoom_in",
+          "duration_sec": 11.7,
+          "pause_after_sec": 0.8,
+          "tts_audio_path": "",
+          "tts_duration_sec": 0.0,
+          "word_timings": [],
+          "use_chapter_media": true
+        },
+        {
+          "id": "58132a9f84",
+          "text": "Le parole sembravano cambiare colore sotto la luce delle candele, come se l'inchiostro conservasse ancora il respiro di chi lo aveva tracciato secoli prima.",
+          "media_path": "",
+          "media_type": "none",
+          "ken_burns": "zoom_in",
+          "duration_sec": 10.0,
+          "pause_after_sec": 0.8,
+          "tts_audio_path": "",
+          "tts_duration_sec": 0.0,
+          "word_timings": [],
+          "use_chapter_media": true
+        }
+      ]
+    },
+    {
+      "id": "03c2309cd4",
+      "title": "Capitolo II - La Torre della Luna",
+      "subtitle": "",
+      "show_title_card": true,
+      "title_card_duration": 3.5,
+      "default_media_path": "demo_assets\\bg_torre.jpg",
+      "default_media_type": "image",
+      "bg_audio_path": "demo_assets\\ambient_sottofondo.wav",
+      "bg_audio_volume": 0.25,
+      "scenes": [
+        {
+          "id": "c3c34eca81",
+          "text": "Salendo la scala a chiocciola verso la cima della torre, il vento della notte portava echi di storie dimenticate. Ogni gradino inciso raccontava una rotta verso il nord.",
+          "media_path": "",
+          "media_type": "none",
+          "ken_burns": "zoom_in",
+          "duration_sec": 11.7,
+          "pause_after_sec": 0.8,
+          "tts_audio_path": "",
+          "tts_duration_sec": 0.0,
+          "word_timings": [],
+          "use_chapter_media": true
+        }
+      ]
+    },
+    {
+      "id": "1465e72a65",
+      "title": "Capitolo III - Oltre l'Orizzonte",
+      "subtitle": "",
+      "show_title_card": true,
+      "title_card_duration": 3.5,
+      "default_media_path": "demo_assets\\bg_mare.jpg",
+      "default_media_type": "image",
+      "bg_audio_path": "demo_assets\\ambient_sottofondo.wav",
+      "bg_audio_volume": 0.25,
+      "scenes": [
+        {
+          "id": "110e86adff",
+          "text": "All'alba, il mare si aprì davanti ai suoi occhi come una pagina bianca. Il manoscritto non era più soltanto un libro: era diventato un viaggio da guardare e ascoltare.",
+          "media_path": "",
+          "media_type": "none",
+          "ken_burns": "zoom_in",
+          "duration_sec": 12.1,
+          "pause_after_sec": 0.8,
+          "tts_audio_path": "",
+          "tts_duration_sec": 0.0,
+          "word_timings": [],
+          "use_chapter_media": true
+        }
+      ]
+    }
+  ]
+}
