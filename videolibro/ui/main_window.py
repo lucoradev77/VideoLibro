@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSplitter,
+    QStyle,
     QTabWidget,
     QTextBrowser,
     QTextEdit,
@@ -195,6 +196,32 @@ class TTSBatchWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class TTSPrepareWorker(QThread):
+    progress = Signal(int, str)
+    scene_ready = Signal(str, str, float, object)
+    finished_ok = Signal()
+    failed = Signal(str)
+
+    def __init__(self, jobs: list[tuple[str, str, str, str, str]], cache_dir: Path) -> None:
+        super().__init__()
+        self.jobs = jobs
+        self.cache_dir = cache_dir
+
+    def run(self) -> None:
+        try:
+            total = len(self.jobs)
+            for index, (text, scene_id, voice, rate, engine) in enumerate(self.jobs, 1):
+                self.progress.emit(int((index - 1) * 100 / max(1, total)), f"Generazione TTS {index}/{total}…")
+                path, duration, timings = synthesize_scene_tts(
+                    text, self.cache_dir, scene_id, voice=voice, rate=rate, engine=engine
+                )
+                self.scene_ready.emit(scene_id, path, duration, timings)
+                self.progress.emit(int(index * 100 / max(1, total)), f"TTS pronto {index}/{total}")
+            self.finished_ok.emit()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     """Main IDE-like Studio window for creating MP4 VideoBooks."""
 
@@ -213,6 +240,10 @@ class MainWindow(QMainWindow):
         self._multi_select_mode = False
         self._updating_ui: bool = False
         self._worker: QThread | None = None
+        self._preview_tts_worker: TTSPrepareWorker | None = None
+        self._preview_tts_workers: list[TTSPrepareWorker] = []
+        self._preview_tts_dialog: TaskProgressDialog | None = None
+        self._preview_tts_remaining_jobs: list[tuple[str, str, str, str, str]] = []
         self._latest_release_tag: str | None = None
         self._update_manager = QNetworkAccessManager(self)
         self._update_manager.finished.connect(self._on_update_check_finished)
@@ -232,12 +263,18 @@ class MainWindow(QMainWindow):
         self._preview_motion_timer = QTimer(self)
         self._preview_motion_timer.setInterval(120)
         self._preview_motion_timer.timeout.connect(self._refresh_preview_motion)
+        self._karaoke_timer = QTimer(self)
+        self._karaoke_timer.setInterval(50)
+        self._karaoke_timer.timeout.connect(self._refresh_preview_motion)
         self._test_entries: list = []
         self._test_index: int = 0
         self._is_testing: bool = False
         self._test_paused: bool = False
+        self._is_listening_scene: bool = False
         self._paused_entry_elapsed: float = 0.0
         self._paused_remaining_ms: int = 0
+        self._preview_fullscreen_window = None
+        self._fullscreen_preview_label = None
 
         self.setWindowTitle("VideoLibro Studio — Manoscritti in Cinema per TV")
         self.resize(1420, 900)
@@ -247,7 +284,9 @@ class MainWindow(QMainWindow):
         self._layout_screen_signature = self._current_screen_signature()
         self.top_splitter.splitterMoved.connect(lambda _pos, _index: self._save_layout_settings())
         self.main_splitter.splitterMoved.connect(lambda _pos, _index: self._save_layout_settings())
-        QTimer.singleShot(0, self._restore_layout_settings)
+        # Restore after the initial maximized geometry has settled; otherwise
+        # Qt scales the splitter sizes from the constructor's temporary size.
+        QTimer.singleShot(250, self._restore_layout_settings)
         QTimer.singleShot(0, self._connect_screen_signals)
         QTimer.singleShot(5000, self.check_for_updates)
         self._retranslate_ui()
@@ -362,8 +401,6 @@ class MainWindow(QMainWindow):
         return sizes if all(size > 0 for size in sizes) else None
 
     def _restore_layout_settings(self) -> None:
-        if self._settings_store.value("layout/screen_signature", "") != self._layout_screen_signature:
-            return
         top_sizes = self._stored_splitter_sizes(self._settings_store.value("layout/top_splitter_sizes", []), 3)
         main_sizes = self._stored_splitter_sizes(self._settings_store.value("layout/main_splitter_sizes", []), 2)
         if top_sizes:
@@ -577,23 +614,40 @@ class MainWindow(QMainWindow):
 
         ch_btns = QHBoxLayout()
         ch_btns.setContentsMargins(0, 5, 0, 0)
-        self.b_add_ch = QPushButton("+ Capitolo")
+        self.b_add_ch = QPushButton()
+        self.b_add_ch.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder))
+        self.b_add_ch.setFixedWidth(38)
         self.b_add_ch.clicked.connect(self.add_chapter)
-        self.b_add_sc = QPushButton("+ Scena")
+        self.b_add_sc = QPushButton()
+        self.b_add_sc.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
+        self.b_add_sc.setFixedWidth(38)
         self.b_add_sc.clicked.connect(self.add_scene)
-        self.b_del = QPushButton("Elimina")
+        self.b_del = QPushButton()
+        self.b_del.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        self.b_del.setFixedWidth(38)
         self.b_del.clicked.connect(self.delete_selected)
         self.b_up = QPushButton("↑")
+        self.b_up.setFixedWidth(34)
         self.b_up.setToolTip("Sposta in alto")
         self.b_up.clicked.connect(self.move_selected_up)
         self.b_down = QPushButton("↓")
+        self.b_down.setFixedWidth(34)
         self.b_down.setToolTip("Sposta in basso")
         self.b_down.clicked.connect(self.move_selected_down)
-        self.b_merge = QPushButton("Unisci scene")
+        self.b_merge = QPushButton()
+        self.b_merge.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        self.b_merge.setFixedWidth(38)
         self.b_merge.clicked.connect(self.merge_selected_scene)
-        self.b_multi = QPushButton("Selezione multipla")
+        self.b_multi = QPushButton()
+        self.b_multi.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogListView))
+        self.b_multi.setFixedWidth(38)
         self.b_multi.setCheckable(True)
         self.b_multi.toggled.connect(self.set_multi_select_mode)
+        self.b_add_ch.setToolTip("Aggiungi capitolo / Add chapter")
+        self.b_add_sc.setToolTip("Aggiungi scena / Add scene")
+        self.b_del.setToolTip("Elimina elemento selezionato / Delete selected item")
+        self.b_merge.setToolTip("Unisci scene selezionate / Merge selected scenes")
+        self.b_multi.setToolTip("Attiva o termina la selezione multipla / Toggle multi-select")
         ch_btns.addWidget(self.b_up)
         ch_btns.addWidget(self.b_down)
         ch_btns.addWidget(self.b_add_ch)
@@ -629,6 +683,14 @@ class MainWindow(QMainWindow):
         hdr_row.addWidget(self.btn_test_pause)
         hdr_row.addWidget(self.btn_test_stop)
         hdr_row.addWidget(self.btn_listen)
+        self.btn_preview_fullscreen = QPushButton("⛶ Anteprima intera")
+        self.btn_preview_fullscreen.clicked.connect(self.toggle_preview_fullscreen)
+        hdr_row.addWidget(self.btn_preview_fullscreen)
+        self.chk_karaoke = QCheckBox("Effetto Karaoke")
+        self.chk_karaoke.setToolTip("Evidenzia le parole durante la lettura, anche nel video esportato")
+        self.chk_karaoke.setChecked(self.project.settings.karaoke_enabled)
+        self.chk_karaoke.toggled.connect(self._on_karaoke_toggled)
+        hdr_row.addWidget(self.chk_karaoke)
         center_lay.addLayout(hdr_row)
 
         self.preview_label = QLabel()
@@ -860,6 +922,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_all(self) -> None:
         self._updating_ui = True
+        self.chk_karaoke.blockSignals(True)
+        self.chk_karaoke.setChecked(self.project.settings.karaoke_enabled)
+        self.chk_karaoke.blockSignals(False)
         self._refresh_media_library()
         self.tree.clear()
         for c_idx, ch in enumerate(self.project.chapters):
@@ -981,7 +1046,7 @@ class MainWindow(QMainWindow):
 
     def set_multi_select_mode(self, enabled: bool) -> None:
         self._multi_select_mode = enabled
-        self.b_multi.setText(tr(self._lang, "btn_multi_done" if enabled else "btn_multi"))
+        self.b_multi.setToolTip(tr(self._lang, "btn_multi_done" if enabled else "btn_multi"))
         self._refresh_all()
 
     def _checked_tree_targets(self) -> tuple[set[int], dict[int, set[int]]]:
@@ -1113,12 +1178,89 @@ class MainWindow(QMainWindow):
                       if e.chapter_index == self._sel_chapter and e.scene_index == self._sel_scene), None)
         if entry is None:
             return
-        img = render_preview_frame(self.project, entry, (960, 540), self._preview_progress())
+        active_word = self._active_word_index() if self.project.settings.karaoke_enabled else None
+        img = render_preview_frame(self.project, entry, (960, 540), self._preview_progress(), active_word)
+        target_label = self._fullscreen_preview_label if self._fullscreen_preview_label and self._fullscreen_preview_label.isVisible() else self.preview_label
         pix = QPixmap.fromImage(ImageQt(img)).scaled(
-            self.preview_label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            target_label.size(), Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        self.preview_label.setPixmap(pix)
+        target_label.setPixmap(pix)
+
+    def _on_karaoke_toggled(self, enabled: bool) -> None:
+        self.project.settings.karaoke_enabled = enabled
+        self._refresh_preview_motion()
+
+    def _active_word_index(self) -> int | None:
+        if self._sel_scene is None or not self.project.chapters:
+            return None
+        scene = self.project.chapters[self._sel_chapter].scenes[self._sel_scene]
+        timings = scene.word_timings or []
+        # Word boundaries tend to feel a little late in visual playback;
+        # compensate for display refresh and TTS/audio output startup latency.
+        current = self._player.position() / 1000.0 + 0.12
+        if self._test_paused:
+            current = self._paused_entry_elapsed
+        words = scene.text.split()
+        if not timings:
+            # Offline voices do not expose word boundaries; estimate a moving
+            # word cursor across the known speech duration as a fallback.
+            duration = max(0.1, scene.tts_duration_sec)
+            if not words or current < 0:
+                return None
+            return min(len(words) - 1, int(current / duration * len(words)))
+        def normalize(value: str) -> str:
+            return "".join(char.casefold() for char in value if char.isalnum())
+
+        # Edge TTS WordBoundary text is not guaranteed to match the source
+        # token exactly (punctuation and contractions can differ). Align each
+        # boundary to the next matching source word before returning its index.
+        mapped_indices: list[int] = []
+        search_from = 0
+        for timing in timings:
+            boundary = normalize(str(timing.get("text", "")))
+            match_index = None
+            for word_index in range(search_from, len(words)):
+                source_word = normalize(words[word_index])
+                if boundary and (source_word == boundary or source_word.startswith(boundary) or boundary.startswith(source_word)):
+                    match_index = word_index
+                    search_from = word_index + 1
+                    break
+            mapped_indices.append(match_index if match_index is not None else min(len(mapped_indices), max(0, len(words) - 1)))
+
+        active_timing = None
+        for index, timing in enumerate(timings):
+            start = float(timing.get("offset_sec", 0.0))
+            if start <= current:
+                active_timing = index
+            else:
+                break
+        return mapped_indices[active_timing] if active_timing is not None else None
+
+    def toggle_preview_fullscreen(self) -> None:
+        if self._preview_fullscreen_window and self._preview_fullscreen_window.isVisible():
+            self._preview_fullscreen_window.close()
+            return
+        window = QWidget(None, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        window.setStyleSheet("background-color: #0B0D13;")
+        layout = QVBoxLayout(window)
+        layout.setContentsMargins(0, 0, 0, 0)
+        label = QLabel()
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+        window.installEventFilter(self)
+        window.destroyed.connect(lambda: setattr(self, "_fullscreen_preview_label", None))
+        self._preview_fullscreen_window = window
+        self._fullscreen_preview_label = label
+        window.showFullScreen()
+        self._refresh_preview_motion()
+
+    def eventFilter(self, watched, event):
+        if watched is self._preview_fullscreen_window and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_F11):
+                watched.close()
+                return True
+        return super().eventFilter(watched, event)
 
     def _refresh_playhead(self) -> None:
         if not self._is_testing or not self._test_entries:
@@ -1434,6 +1576,7 @@ class MainWindow(QMainWindow):
             return
         sc = self.project.chapters[self._sel_chapter].scenes[self._sel_scene]
         self.lbl_status.setText("Generazione anteprima vocale TTS...")
+        self._karaoke_timer.stop()
         ap, dur, timings = synthesize_scene_tts(
             sc.text,
             self.tts_cache_dir,
@@ -1446,13 +1589,17 @@ class MainWindow(QMainWindow):
         sc.tts_duration_sec = dur
         sc.word_timings = timings
         self._refresh_timeline_and_preview()
+        if not ap:
+            return
         self._player.setSource(QUrl.fromLocalFile(ap))
+        self._audio_out.setVolume(0.95)
         self._player.play()
-        if ap:
-            self._audio_out.setVolume(0.95)
-            self._player.setSource(QUrl.fromLocalFile(ap))
-            self._player.play()
-            self.lbl_status.setText(f"Riproduzione TTS ({dur:.1f}s)...")
+        self._is_listening_scene = True
+        self.btn_test_play.setEnabled(False)
+        self.btn_test_pause.setEnabled(True)
+        self.btn_test_stop.setEnabled(True)
+        self._karaoke_timer.start()
+        self.lbl_status.setText(f"Riproduzione TTS ({dur:.1f}s)...")
 
     def generate_all_tts(self) -> None:
         if self._worker and self._worker.isRunning():
@@ -1635,6 +1782,7 @@ class MainWindow(QMainWindow):
         self._lang = str(lang)
         self._settings_store.setValue("ui_language", self._lang)
         self._retranslate_ui()
+        self.btn_preview_fullscreen.setText("⛶ Schermo intero anteprima" if self._lang == "it" else "⛶ Full-screen preview")
 
     def _retranslate_ui(self) -> None:
         L = self._lang
@@ -1646,18 +1794,17 @@ class MainWindow(QMainWindow):
         self.btn_tts_all.setText(tr(L, "tb_tts_all"))
         self.btn_export.setText(tr(L, "tb_export"))
         self.btn_help.setText(tr(L, "tb_help"))
+        self.btn_preview_fullscreen.setText("⛶ Schermo intero anteprima" if L == "it" else "⛶ Full-screen preview")
         self._update_fullscreen_button()
         self._update_update_button()
         self.lbl_left_hdr.setText(tr(L, "left_header"))
-        self.b_add_ch.setText(tr(L, "btn_add_ch"))
-        self.b_add_sc.setText(tr(L, "btn_add_sc"))
-        self.b_del.setText(tr(L, "btn_del"))
-        self.b_up.setText(tr(L, "btn_up"))
         self.b_up.setToolTip(tr(L, "tip_up"))
-        self.b_down.setText(tr(L, "btn_down"))
         self.b_down.setToolTip(tr(L, "tip_down"))
-        self.b_merge.setText(tr(L, "btn_merge"))
-        self.b_multi.setText(tr(L, "btn_multi_done" if self._multi_select_mode else "btn_multi"))
+        self.b_add_ch.setToolTip(tr(L, "btn_add_ch"))
+        self.b_add_sc.setToolTip(tr(L, "btn_add_sc"))
+        self.b_del.setToolTip(tr(L, "btn_del"))
+        self.b_merge.setToolTip(tr(L, "btn_merge"))
+        self.b_multi.setToolTip(tr(L, "btn_multi_done" if self._multi_select_mode else "btn_multi"))
         self.btn_test_play.setText(tr(L, "btn_test_play"))
         self.btn_test_pause.setText("⏸ Pausa" if L == "it" else "⏸ Pause")
         self.btn_test_stop.setText(tr(L, "btn_test_stop"))
@@ -1729,8 +1876,84 @@ class MainWindow(QMainWindow):
         entries = self.project.compute_timeline()
         if not entries:
             return
+        horizon_scene_ids = {
+            self.project.chapters[e.chapter_index].scenes[e.scene_index].id
+            for e in entries
+            if e.kind == "scene" and e.scene_index is not None and e.start_sec < 120
+        }
+        first_jobs, later_jobs = [], []
+        for chapter in self.project.chapters:
+            for scene in chapter.scenes:
+                if (scene.tts_audio_path and Path(scene.tts_audio_path).is_file()
+                        and (self.project.settings.tts_engine != "edge-tts" or scene.word_timings)):
+                    continue
+                job = (scene.text, scene.id, self.project.settings.tts_voice,
+                       self.project.settings.tts_rate, self.project.settings.tts_engine)
+                (first_jobs if scene.id in horizon_scene_ids else later_jobs).append(job)
+        self._preview_tts_remaining_jobs = later_jobs
+        if first_jobs:
+            self._show_preview_tts_dialog(first_jobs)
+            return
+        self._begin_full_preview()
+        self._start_background_preview_tts()
+
+    def _show_preview_tts_dialog(self, jobs: list[tuple[str, str, str, str, str]]) -> None:
+        dlg = TaskProgressDialog(
+            self, lang=self._lang,
+            title="Preparazione anteprima vocale" if self._lang == "it" else "Preparing voice preview",
+            description="Preparo la voce per i primi due minuti…" if self._lang == "it" else "Preparing narration for the first two minutes…",
+        )
+        dlg.btn_cancel.setVisible(False)
+        worker = TTSPrepareWorker(jobs, self.tts_cache_dir)
+        worker.progress.connect(dlg.update_progress)
+        worker.scene_ready.connect(self._on_preview_scene_tts_ready)
+        worker.finished_ok.connect(self._on_initial_preview_tts_done)
+        worker.failed.connect(self._on_preview_tts_failed)
+        self._preview_tts_dialog = dlg
+        self._preview_tts_worker = worker
+        self._preview_tts_workers.append(worker)
+        dlg.show()
+        worker.start()
+
+    def _on_preview_scene_tts_ready(self, scene_id: str, path: str, duration: float, timings) -> None:
+        for chapter in self.project.chapters:
+            for scene in chapter.scenes:
+                if scene.id == scene_id:
+                    scene.tts_audio_path = path
+                    scene.tts_duration_sec = duration
+                    scene.word_timings = list(timings or [])
+                    return
+
+    def _on_initial_preview_tts_done(self) -> None:
+        if self._preview_tts_dialog:
+            self._preview_tts_dialog.cancel_event.set()
+            self._preview_tts_dialog.accept()
+        self._begin_full_preview()
+        self._start_background_preview_tts()
+
+    def _on_preview_tts_failed(self, message: str) -> None:
+        if self._preview_tts_dialog:
+            self._preview_tts_dialog.cancel_event.set()
+            self._preview_tts_dialog.accept()
+        self.lbl_status.setText(f"Errore preparazione TTS: {message}")
+        self._begin_full_preview()
+
+    def _start_background_preview_tts(self) -> None:
+        if not self._preview_tts_remaining_jobs:
+            return
+        worker = TTSPrepareWorker(self._preview_tts_remaining_jobs, self.tts_cache_dir)
+        self._preview_tts_remaining_jobs = []
+        worker.scene_ready.connect(self._on_preview_scene_tts_ready)
+        worker.failed.connect(lambda message: self.lbl_status.setText(f"Errore TTS in background: {message}"))
+        self._preview_tts_worker = worker
+        self._preview_tts_workers.append(worker)
+        worker.start()
+
+    def _begin_full_preview(self) -> None:
+        if not self.project.compute_timeline():
+            return
         self.stop_full_preview()
-        self._test_entries = entries
+        self._test_entries = self.project.compute_timeline()
         self._test_index = 0
         self._is_testing = True
         self._test_paused = False
@@ -1742,9 +1965,13 @@ class MainWindow(QMainWindow):
         self._play_test_entry(0)
 
     def stop_full_preview(self) -> None:
+        was_listening = self._is_listening_scene
+        self._is_listening_scene = False
         self._is_testing = False
+        self._test_paused = False
         self._preview_motion_timer.stop()
         self._test_timer.stop()
+        self._karaoke_timer.stop()
         self._player.stop()
         self._bgm_player.stop()
         self.btn_test_play.setEnabled(True)
@@ -1752,10 +1979,13 @@ class MainWindow(QMainWindow):
         self.btn_test_pause.setText("⏸ Pausa" if self._lang == "it" else "⏸ Pause")
         self.btn_test_stop.setEnabled(False)
         self.timeline.set_playhead(None)
-        self.lbl_status.setText("Anteprima completa fermata.")
+        self.lbl_status.setText("Riproduzione scena fermata." if was_listening else "Anteprima completa fermata.")
 
     def _advance_full_preview(self) -> None:
-        if not self._is_testing or self._test_paused:
+        if not self._is_testing:
+            return
+        if self._test_paused:
+            self._test_timer.start(250)
             return
         next_idx = self._test_index + 1
         if next_idx >= len(self._test_entries):
@@ -1767,6 +1997,8 @@ class MainWindow(QMainWindow):
     def _play_test_entry(self, idx: int) -> None:
         if not self._is_testing or idx >= len(self._test_entries):
             return
+        # Cancel any previous segment deadline before replacing its media.
+        self._test_timer.stop()
         self._test_index = idx
         self._test_paused = False
         entry = self._test_entries[idx]
@@ -1794,34 +2026,37 @@ class MainWindow(QMainWindow):
         dur_sec = entry.duration_sec
         if entry.kind == "scene":
             sc = self.project.chapters[entry.chapter_index].scenes[entry.scene_index or 0]
-            if not sc.tts_audio_path or not Path(sc.tts_audio_path).exists():
-                ap, dur, timings = synthesize_scene_tts(
-                    sc.text,
-                    self.tts_cache_dir,
-                    sc.id,
-                    voice=self.project.settings.tts_voice,
-                    rate=self.project.settings.tts_rate,
-                    engine=self.project.settings.tts_engine,
-                )
-                sc.tts_audio_path = ap
-                sc.tts_duration_sec = dur
-                sc.word_timings = timings
-                self._test_entries = self.project.compute_timeline()
-                entry = self._test_entries[idx]
-                dur_sec = entry.duration_sec
-                self._refresh_timeline_and_preview()
-
             if sc.tts_audio_path and Path(sc.tts_audio_path).exists():
                 self._audio_out.setVolume(0.95)
                 self._player.setSource(QUrl.fromLocalFile(sc.tts_audio_path))
                 self._player.play()
+                if sc.word_timings:
+                    self._karaoke_timer.start()
+                else:
+                    self._karaoke_timer.stop()
+            else:
+                self._karaoke_timer.stop()
+                self.lbl_status.setText(
+                    f"TTS non ancora generato: {entry.label}. La scena prosegue senza voce."
+                )
         else:
             self._player.stop()
+            self._karaoke_timer.stop()
 
         self.lbl_status.setText(f"▶ Test Live ({idx + 1}/{len(self._test_entries)}): {entry.label}")
         self._test_timer.start(max(1200, int(dur_sec * 1000)))
 
     def toggle_full_preview_pause(self) -> None:
+        if self._is_listening_scene and not self._is_testing:
+            if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                self._player.pause()
+                self._karaoke_timer.stop()
+                self.btn_test_pause.setText("▶ Riprendi" if self._lang == "it" else "▶ Resume")
+            else:
+                self._player.play()
+                self._karaoke_timer.start()
+                self.btn_test_pause.setText("⏸ Pausa" if self._lang == "it" else "⏸ Pause")
+            return
         if not self._is_testing:
             return
         if not self._test_paused:

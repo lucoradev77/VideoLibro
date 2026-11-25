@@ -10,6 +10,7 @@ from pathlib import Path
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia.ffmpeg*=false")
 
 from PySide6.QtGui import QIcon
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from videolibro.ui.main_window import MainWindow
@@ -40,7 +41,10 @@ def main() -> int:
     win = MainWindow(workspace)
     if icon_path.exists():
         win.setWindowIcon(QIcon(str(icon_path)))
-    win.showMaximized()
+    # Defer until Qt has created the native window so Windows applies the
+    # maximized state to the selected monitor instead of the initial 1420x900.
+    win.show()
+    QTimer.singleShot(0, win.showMaximized)
     return app.exec()
 
 

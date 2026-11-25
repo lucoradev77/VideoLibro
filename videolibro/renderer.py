@@ -194,6 +194,7 @@ def render_scene_overlay(
     progress_ratio: float,
     width: int,
     height: int,
+    active_word_index: int | None = None,
 ) -> Image.Image:
     """Create a transparent RGBA text/UI overlay for a scene ready for TV viewing."""
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -224,6 +225,19 @@ def render_scene_overlay(
 
     # Main text rendering by style
     text_font = get_custom_font(project.settings.font_family, project.settings.font_variant, font_size)
+    word_offset = 0
+
+    def draw_karaoke_row(line, x, y, base_fill, shadow=False):
+        nonlocal word_offset
+        row_word_index = None
+        if active_word_index is not None:
+            local_index = active_word_index - word_offset
+            if 0 <= local_index < len(line.split()):
+                row_word_index = local_index
+        _draw_karaoke_line(draw, line, x, y, text_font, row_word_index,
+                           base_fill, (*accent, 255), shadow=shadow)
+        word_offset += len(line.split())
+
     if style == "Sottotitoli Cinema":
         lines = _wrap_text_to_width(draw, scene.text, text_font, int(width * 0.80))
         line_h = int(font_size * 1.38)
@@ -242,7 +256,7 @@ def render_scene_overlay(
             # Crisp cinema outline
             for ox, oy in ((-2, -2), (2, -2), (-2, 2), (2, 2), (0, 3)):
                 draw.text((x + ox, y + oy), line, font=text_font, fill=(0, 0, 0, 235))
-            draw.text((x, y), line, font=text_font, fill=(252, 250, 242, 255))
+            draw_karaoke_row(line, x, y, (252, 250, 242, 255))
             y += line_h
 
     elif style == "Pagina Antica":
@@ -262,7 +276,7 @@ def render_scene_overlay(
         )
         y = card_y + int(42 * scale)
         for line in lines:
-            draw.text((card_x + int(55 * scale), y), line, font=text_font, fill=(44, 32, 20, 255))
+            draw_karaoke_row(line, card_x + int(55 * scale), y, (44, 32, 20, 255))
             y += line_h
 
     elif style == "Minimal Elegante":
@@ -284,7 +298,7 @@ def render_scene_overlay(
             lw = lb[2] - lb[0]
             x = (width - lw) / 2
             draw.text((x + 1, y + 2), line, font=text_font, fill=(0, 0, 0, 215))
-            draw.text((x, y), line, font=text_font, fill=(248, 246, 240, 255))
+            draw_karaoke_row(line, x, y, (248, 246, 240, 255))
             y += line_h
 
     elif style == "Notturno Blu":
@@ -308,7 +322,7 @@ def render_scene_overlay(
             lw = lb[2] - lb[0]
             x = (width - lw) / 2
             draw.text((x + 1, y + 2), line, font=text_font, fill=(0, 0, 0, 200))
-            draw.text((x, y), line, font=text_font, fill=(230, 242, 255, 255))
+            draw_karaoke_row(line, x, y, (230, 242, 255, 255))
             y += line_h
 
     else:
@@ -334,7 +348,7 @@ def render_scene_overlay(
             lw = lb[2] - lb[0]
             x = (width - lw) / 2
             draw.text((x + 1, y + 2), line, font=text_font, fill=(0, 0, 0, 200))
-            draw.text((x, y), line, font=text_font, fill=(246, 243, 236, 255))
+            draw_karaoke_row(line, x, y, (246, 243, 236, 255), shadow=True)
             y += line_h
 
     # Subtle bottom TV reading progress bar
@@ -347,11 +361,45 @@ def render_scene_overlay(
     return img
 
 
+def _draw_karaoke_line(draw, line, x, y, font, active_word_index, base_fill,
+                       active_fill, shadow=False):
+    """Draw a line with the currently spoken word in the project accent color."""
+    if active_word_index is None:
+        if shadow:
+            draw.text((x + 1, y + 2), line, font=font, fill=(0, 0, 0, 200))
+        draw.text((x, y), line, font=font, fill=base_fill)
+        return
+    words = line.split()
+    space_width = draw.textlength(" ", font=font)
+    cursor = x
+    for index, word in enumerate(words):
+        is_active = index == active_word_index
+        is_neighbor = abs(index - active_word_index) == 1
+        fill = base_fill
+        # Draw the style shadow first so the karaoke background fully covers
+        # it; otherwise its offset glyph appears doubled inside the highlight.
+        if shadow and not is_active:
+            draw.text((cursor + 1, y + 2), word, font=font, fill=(0, 0, 0, 200))
+        if is_active or is_neighbor:
+            bbox = draw.textbbox((cursor, y), word, font=font)
+            pad_x, pad_y = 2, 1
+            draw.rounded_rectangle(
+                (bbox[0] - pad_x, bbox[1] - pad_y, bbox[2] + pad_x, bbox[3] + pad_y),
+                radius=3,
+                fill=(255, 226, 64, 72),
+                outline=(25, 31, 42, 110),
+                width=1,
+            )
+        draw.text((cursor, y), word, font=font, fill=fill)
+        cursor += draw.textlength(word, font=font) + space_width
+
+
 def render_preview_frame(
     project: VideoBookProject,
     entry: TimelineEntry | None,
     preview_size: tuple[int, int] = (960, 540),
     progress: float = 0.0,
+    active_word_index: int | None = None,
 ) -> Image.Image:
     """Render a fast composite preview image for the GUI TV monitor."""
     w, h = preview_size
@@ -402,7 +450,7 @@ def render_preview_frame(
         sc = ch.scenes[entry.scene_index or 0]
         total_dur = max(1.0, project.total_duration())
         ratio = entry.end_sec / total_dur
-        overlay = render_scene_overlay(project, ch, sc, ratio, w, h)
+        overlay = render_scene_overlay(project, ch, sc, ratio, w, h, active_word_index)
 
     combined = Image.alpha_composite(canvas.convert("RGBA"), overlay)
     return combined.convert("RGB")
@@ -542,15 +590,35 @@ def export_project_to_mp4(
             dur = entry.duration_sec
             frames = int(round(dur * fps))
 
-            # Render RGBA overlay PNG
+            # Render RGBA overlay PNG. When karaoke is enabled, use a short
+            # overlay image sequence so the highlight follows the narration.
             overlay_png = tmp_dir / f"overlay_{idx:04d}.png"
+            overlay_sequence = False
             if entry.kind == "title_card":
                 ov_img = render_title_card_overlay(project, ch, w, h)
                 kb_mode: KenBurnsMode = "zoom_in"
                 tts_path = ""
             else:
                 sc = ch.scenes[entry.scene_index or 0]
-                ov_img = render_scene_overlay(project, ch, sc, entry.end_sec / total_dur, w, h)
+                overlay_sequence = bool(project.settings.karaoke_enabled and sc.word_timings)
+                if overlay_sequence:
+                    overlay_fps = 10
+                    count = max(1, int(round(dur * overlay_fps)))
+                    for frame_index in range(count):
+                        elapsed = frame_index / overlay_fps
+                        active_word = None
+                        for word_index, timing in enumerate(sc.word_timings):
+                            if float(timing.get("offset_sec", 0.0)) <= elapsed:
+                                active_word = word_index
+                            else:
+                                break
+                        frame = render_scene_overlay(
+                            project, ch, sc, entry.end_sec / total_dur, w, h, active_word
+                        )
+                        frame.save(tmp_dir / f"overlay_{idx:04d}_{frame_index:05d}.png", "PNG")
+                    ov_img = render_scene_overlay(project, ch, sc, entry.end_sec / total_dur, w, h)
+                else:
+                    ov_img = render_scene_overlay(project, ch, sc, entry.end_sec / total_dur, w, h)
                 kb_mode = sc.ken_burns
                 tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).exists() else ""
             ov_img.save(overlay_png, "PNG")
@@ -572,7 +640,10 @@ def export_project_to_mp4(
                 v_base = "[0:v]null[bg]"
 
             # Overlay input 1
-            args += ["-loop", "1", "-t", f"{dur:.2f}", "-i", str(overlay_png)]
+            if overlay_sequence:
+                args += ["-framerate", str(overlay_fps), "-i", str(tmp_dir / f"overlay_{idx:04d}_%05d.png")]
+            else:
+                args += ["-loop", "1", "-t", f"{dur:.2f}", "-i", str(overlay_png)]
 
             fade_out_st = max(0.1, dur - 0.35)
             v_filter = (

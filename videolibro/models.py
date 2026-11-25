@@ -87,6 +87,7 @@ class ProjectSettings:
     auto_ducking: bool = True
     ducking_factor: float = 0.35
     accent_color: str = "#E0B46A"
+    karaoke_enabled: bool = False
     bg_fallback_color: str = "#12151E"
     global_pause_sec: float = 0.8
 
