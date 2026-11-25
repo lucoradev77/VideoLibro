@@ -35,6 +35,7 @@ class SceneBlock:
     ken_burns: KenBurnsMode = "zoom_in"
     duration_sec: float = 5.0
     pause_after_sec: float = 0.8
+    pause_override: bool = False
     tts_audio_path: str = ""
     tts_duration_sec: float = 0.0
     word_timings: list[dict] = field(default_factory=list)
@@ -43,7 +44,7 @@ class SceneBlock:
     @property
     def effective_duration(self) -> float:
         base = self.tts_duration_sec if self.tts_duration_sec > 0 else self.duration_sec
-        return max(2.0, base + self.pause_after_sec)
+        return max(2.0, base) + self.pause_after_sec
 
 
 @dataclass
@@ -64,7 +65,7 @@ class Chapter:
     def total_duration(self) -> float:
         total = self.title_card_duration if self.show_title_card else 0.0
         for s in self.scenes:
-            total += s.effective_duration
+            total += max(2.0, s.tts_duration_sec if s.tts_duration_sec > 0 else s.duration_sec) + s.pause_after_sec
         return total
 
 
@@ -87,6 +88,7 @@ class ProjectSettings:
     ducking_factor: float = 0.35
     accent_color: str = "#E0B46A"
     bg_fallback_color: str = "#12151E"
+    global_pause_sec: float = 0.8
 
     @property
     def width(self) -> int:
@@ -112,6 +114,7 @@ class TimelineEntry:
     bg_audio_path: str
     bg_audio_volume: float
     has_tts: bool
+    pause_sec: float = 0.0
 
     @property
     def end_sec(self) -> float:
@@ -157,7 +160,8 @@ class VideoBookProject:
             for s_idx, sc in enumerate(ch.scenes):
                 media_path = ch.default_media_path if sc.use_chapter_media else sc.media_path
                 media_type = ch.default_media_type if sc.use_chapter_media else sc.media_type
-                dur = sc.effective_duration
+                pause = sc.pause_after_sec if sc.pause_override else self.settings.global_pause_sec
+                dur = max(2.0, sc.tts_duration_sec if sc.tts_duration_sec > 0 else sc.duration_sec) + pause
                 preview_txt = sc.text.strip().replace("\n", " ")
                 if len(preview_txt) > 36:
                     preview_txt = preview_txt[:33] + "..."
@@ -174,13 +178,22 @@ class VideoBookProject:
                         bg_audio_path=ch_audio,
                         bg_audio_volume=ch_vol,
                         has_tts=bool(sc.tts_audio_path),
+                        pause_sec=pause,
                     )
                 )
                 cursor += dur
         return entries
 
     def total_duration(self) -> float:
-        return sum(ch.total_duration() for ch in self.chapters)
+        return sum(
+            (ch.title_card_duration if ch.show_title_card else 0.0)
+            + sum(
+                max(2.0, sc.tts_duration_sec if sc.tts_duration_sec > 0 else sc.duration_sec)
+                + (sc.pause_after_sec if sc.pause_override else self.settings.global_pause_sec)
+                for sc in ch.scenes
+            )
+            for ch in self.chapters
+        )
 
     def save(self, path: str | Path) -> None:
         p = Path(path)

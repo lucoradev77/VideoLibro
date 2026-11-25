@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QAbstractScrollArea, QWidget
 
 from ..i18n import tr
 from ..models import TimelineEntry
@@ -21,6 +21,7 @@ class TimelineWidget(QWidget):
         self._total_duration: float = 0.0
         self._px_per_sec: float = 28.0
         self._selected_key: tuple[int, int | None] | None = None
+        self._playhead_sec: float | None = None
         self._hit_boxes: list[tuple[QRectF, TimelineEntry]] = []
         self._lang: str = "it"
         self.setMinimumHeight(195)
@@ -39,6 +40,17 @@ class TimelineWidget(QWidget):
 
     def set_selected(self, chapter_idx: int, scene_idx: int | None) -> None:
         self._selected_key = (chapter_idx, scene_idx)
+        self.update()
+
+    def set_playhead(self, time_sec: float | None) -> None:
+        self._playhead_sec = max(0.0, time_sec) if time_sec is not None else None
+        if self._playhead_sec is not None:
+            parent = self.parentWidget()
+            while parent is not None and not isinstance(parent, QAbstractScrollArea):
+                parent = parent.parentWidget()
+            if isinstance(parent, QAbstractScrollArea):
+                target = max(0, int(128 + self._playhead_sec * self._px_per_sec - parent.viewport().width() * 0.65))
+                parent.horizontalScrollBar().setValue(target)
         self.update()
 
     def zoom_in(self) -> None:
@@ -164,6 +176,23 @@ class TimelineWidget(QWidget):
                     tts_txt = "TTS ✓" if entry.has_tts else "TTS auto"
                     painter.drawText(a_rect.adjusted(5, 0, -3, 0), Qt.AlignmentFlag.AlignVCenter, tts_txt)
                 self._hit_boxes.append((a_rect, entry))
+
+                # Red marker for the final pause, after the narrated portion.
+                if entry.pause_sec > 0:
+                    pause_x = label_w + (entry.end_sec - entry.pause_sec) * self._px_per_sec
+                    painter.setPen(QPen(QColor("#FF4545"), 2.2))
+                    painter.drawLine(int(pause_x), 67, int(pause_x), 182)
+                    painter.setPen(QColor("#FF7777"))
+                    painter.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
+                    painter.drawText(int(pause_x) + 3, 65, f"⏸ {entry.pause_sec:.1f}s")
+
+        if self._playhead_sec is not None:
+            play_x = label_w + self._playhead_sec * self._px_per_sec
+            painter.setPen(QPen(QColor("#43E6A8"), 2.5))
+            painter.drawLine(int(play_x), 24, int(play_x), 183)
+            painter.setBrush(QColor("#43E6A8"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawPolygon([QPoint(int(play_x)-5, 24), QPoint(int(play_x)+5, 24), QPoint(int(play_x), 31)])
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         pos = event.position()

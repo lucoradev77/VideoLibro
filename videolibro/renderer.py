@@ -214,7 +214,7 @@ def render_scene_overlay(
     bb = draw.textbbox((0, 0), badge_text, font=badge_font)
     bw, bh = bb[2] - bb[0], bb[3] - bb[1]
     draw.rounded_rectangle(
-        [pad_x, pad_y, pad_x + bw + int(32 * scale), pad_y + bh + int(18 * scale)],
+        [pad_x, pad_y, pad_x + bw + int(32 * scale), pad_y + bh + int(32 * scale)],
         radius=int(10 * scale),
         fill=(12, 15, 24, 175),
         outline=(*accent, 140),
@@ -351,6 +351,7 @@ def render_preview_frame(
     project: VideoBookProject,
     entry: TimelineEntry | None,
     preview_size: tuple[int, int] = (960, 540),
+    progress: float = 0.0,
 ) -> Image.Image:
     """Render a fast composite preview image for the GUI TV monitor."""
     w, h = preview_size
@@ -369,8 +370,21 @@ def render_preview_frame(
                 scale = max(w / sw, h / sh)
                 nw, nh = int(sw * scale), int(sh * scale)
                 resized = src_rgba.resize((nw, nh), Image.Resampling.LANCZOS)
-                left = (nw - w) // 2
-                top = (nh - h) // 2
+                progress = max(0.0, min(1.0, progress))
+                mode = "zoom_in"
+                if entry.kind == "scene":
+                    mode = project.chapters[entry.chapter_index].scenes[entry.scene_index or 0].ken_burns
+                zoom = 1.0 + 0.14 * progress if mode == "zoom_in" else 1.14 - 0.14 * progress if mode == "zoom_out" else 1.12 if mode in {"pan_left", "pan_right"} else 1.0
+                zw, zh = int(nw * zoom), int(nh * zoom)
+                resized = resized.resize((zw, zh), Image.Resampling.LANCZOS)
+                max_left, max_top = max(0, zw - w), max(0, zh - h)
+                if mode == "pan_left":
+                    left = int(max_left * (1.0 - progress))
+                elif mode == "pan_right":
+                    left = int(max_left * progress)
+                else:
+                    left = max_left // 2
+                top = max_top // 2
                 canvas = resized.crop((left, top, left + w, top + h))
         except Exception:
             pass
@@ -402,19 +416,25 @@ def _zoompan_filter(mode: KenBurnsMode, width: int, height: int, fps: int, frame
     base = f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=increase,crop={pre_w}:{pre_h},setsar=1"
 
     if mode == "zoom_out":
-        zp = f"zoompan=z='max(1.0,1.14-0.14*on/{frames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={width}x{height}:fps={fps}"
+        zp = f"zoompan=z='max(1.0,1.14-0.14*on/({frames}-1))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
     elif mode == "pan_left":
-        zp = f"zoompan=z='1.12':x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)':d={frames}:s={width}x{height}:fps={fps}"
+        zp = f"zoompan=z='1.12':x='(iw-iw/zoom)*(1-on/({frames}-1))':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
     elif mode == "pan_right":
-        zp = f"zoompan=z='1.12':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom/2)':d={frames}:s={width}x{height}:fps={fps}"
+        zp = f"zoompan=z='1.12':x='(iw-iw/zoom)*(on/({frames}-1))':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
     elif mode == "static":
-        zp = f"zoompan=z='1.0':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={width}x{height}:fps={fps}"
+        zp = f"zoompan=z='1.0':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
     else:  # zoom_in
-        zp = f"zoompan=z='min(1.14,1.0+0.14*on/{frames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={width}x{height}:fps={fps}"
+        zp = f"zoompan=z='min(1.14,1.0+0.14*on/({frames}-1))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
     return f"{base},{zp}"
 
 
-def _run_ffmpeg(args: list[str], cancel_event: threading.Event | None = None) -> None:
+def _run_ffmpeg(
+    args: list[str],
+    cancel_event: threading.Event | None = None,
+    progress_file: Path | None = None,
+    duration_sec: float = 0.0,
+    progress_cb: Callable[[float], None] | None = None,
+) -> None:
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     proc = subprocess.Popen(
         [ffmpeg_exe, "-y", *args],
@@ -433,6 +453,19 @@ def _run_ffmpeg(args: list[str], cancel_event: threading.Event | None = None) ->
             except subprocess.TimeoutExpired:
                 proc.kill()
             raise ExportCancelledError("Esportazione annullata dall'utente.")
+        if progress_file and duration_sec > 0 and progress_cb and progress_file.exists():
+            try:
+                latest = {}
+                for line in progress_file.read_text(encoding="utf-8", errors="ignore").splitlines()[-16:]:
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        latest[key] = value
+                out_time = int(latest.get("out_time_us", "0")) / 1_000_000
+                if out_time == 0:
+                    out_time = int(latest.get("out_time_ms", "0")) / 1_000_000
+                progress_cb(min(1.0, max(0.0, out_time / duration_sec)))
+            except (OSError, ValueError):
+                pass
         time.sleep(0.15)
     _, stderr = proc.communicate()
     if proc.returncode != 0:
@@ -446,12 +479,17 @@ def export_project_to_mp4(
     progress_cb: ProgressCallback | None = None,
     size_cb: SizeCallback | None = None,
     cancel_event: threading.Event | None = None,
+    output_format: str = "mp4",
+    speed_mode: str = "standard",
 ) -> Path:
     """Render the complete VideoLibro project to a TV-ready H.264/AAC MP4 file."""
     out_path = Path(output_mp4)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     w, h = project.settings.width, project.settings.height
     fps = project.settings.fps
+    output_format = "mkv" if output_format.lower() == "mkv" else "mp4"
+    speed_mode = "quick" if speed_mode == "quick" else "standard"
+    preset, crf = ("ultrafast", "23") if speed_mode == "quick" else ("fast", "20")
 
     with tempfile.TemporaryDirectory(prefix="videolibro_") as tmp:
         tmp_dir = Path(tmp)
@@ -491,6 +529,8 @@ def export_project_to_mp4(
 
         # 2. Render each timeline segment
         accumulated_bytes = 0
+        progress_file = tmp_dir / "ffmpeg_progress.txt"
+        segment_ext = ".mkv" if output_format == "mkv" else ".mp4"
         for idx, entry in enumerate(entries):
             if cancel_event and cancel_event.is_set():
                 raise ExportCancelledError("Esportazione annullata dall'utente.")
@@ -515,7 +555,7 @@ def export_project_to_mp4(
                 tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).exists() else ""
             ov_img.save(overlay_png, "PNG")
 
-            seg_mp4 = tmp_dir / f"seg_{idx:04d}.mp4"
+            seg_mp4 = tmp_dir / f"seg_{idx:04d}{segment_ext}"
             args: list[str] = []
 
             # Video input 0
@@ -538,7 +578,7 @@ def export_project_to_mp4(
             v_filter = (
                 f"{v_base};"
                 f"[1:v]format=rgba,fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st={fade_out_st:.2f}:d=0.35:alpha=1[ov];"
-                f"[bg][ov]overlay=0:0:shortest=1[vout]"
+                f"[bg][ov]overlay=0:0:shortest=1,trim=duration={dur:.2f},setpts=PTS-STARTPTS[vout]"
             )
 
             # Audio mixing (TTS + optional background music with auto-ducking)
@@ -582,9 +622,9 @@ def export_project_to_mp4(
                 "-c:v",
                 "libx264",
                 "-preset",
-                "fast",
+                preset,
                 "-crf",
-                "20",
+                crf,
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",
@@ -599,14 +639,29 @@ def export_project_to_mp4(
                 f"{dur:.2f}",
                 str(seg_mp4),
             ]
-            _run_ffmpeg(args, cancel_event=cancel_event)
+            if progress_file.exists():
+                progress_file.unlink()
+            args = ["-progress", str(progress_file), "-stats_period", "0.5", "-nostats", *args]
+            def report_segment_progress(fraction: float, segment_index: int = idx) -> None:
+                overall = (segment_index + fraction) / len(entries)
+                if progress_cb:
+                    pct = int(30 + 60 * overall)
+                    progress_cb(pct, f"Rendering scena {segment_index + 1}/{len(entries)}: {entries[segment_index].label}")
+
+            _run_ffmpeg(
+                args,
+                cancel_event=cancel_event,
+                progress_file=progress_file,
+                duration_sec=dur,
+                progress_cb=report_segment_progress,
+            )
             segment_paths.append(seg_mp4)
             if seg_mp4.exists():
                 accumulated_bytes += seg_mp4.stat().st_size
                 if size_cb:
                     size_cb(accumulated_bytes)
 
-        # 3. Concatenate all segments into final MP4
+        # 3. Concatenate all segments into the selected output container
         if progress_cb:
             progress_cb(93, "Assemblaggio finale del VideoLibro MP4...")
 
@@ -615,22 +670,31 @@ def export_project_to_mp4(
             "\n".join(f"file '{p.as_posix()}'" for p in segment_paths),
             encoding="utf-8",
         )
-        _run_ffmpeg(
-            [
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_txt),
-                "-c",
-                "copy",
-                "-movflags",
-                "+faststart",
-                str(out_path),
-            ],
-            cancel_event=cancel_event,
+        temp_fd, temp_name = tempfile.mkstemp(
+            prefix=f".{out_path.stem}_rendering_", suffix=segment_ext, dir=out_path.parent
         )
+        os.close(temp_fd)
+        temp_output = Path(temp_name)
+        try:
+            _run_ffmpeg(
+                [
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_txt),
+                    "-c",
+                    "copy",
+                    *( ["-movflags", "+faststart"] if output_format == "mp4" else [] ),
+                    str(temp_output),
+                ],
+                cancel_event=cancel_event,
+            )
+            temp_output.replace(out_path)
+        except Exception:
+            temp_output.unlink(missing_ok=True)
+            raise
         if out_path.exists() and size_cb:
             size_cb(out_path.stat().st_size)
 

@@ -62,7 +62,16 @@
       max-width: 680px; margin: 0 auto 34px;
       color: var(--muted); font-size: 1.12rem;
     }
-    .cta-row { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .cta-row { display: flex; gap: 16px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+    .download-block { display: flex; flex-direction: column; align-items: center; max-width: 470px; }
+    .download-warning {
+      margin-top: 12px; padding: 10px 14px; border-left: 3px solid var(--gold);
+      border-radius: 6px; background: rgba(20,26,39,0.88); color: var(--muted);
+      font-size: 0.82rem; text-align: left;
+    }
+    .download-warning strong { color: var(--gold); }
+    .download-warning a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+    .download-warning a:hover { color: var(--gold); }
     .btn-primary {
       background: linear-gradient(135deg, var(--gold), var(--gold-dark));
       color: #10131b; font-weight: 700; padding: 14px 28px;
@@ -86,7 +95,7 @@
     }
     .tv-screen {
       position: relative; aspect-ratio: 16/9; border-radius: 10px; overflow: hidden;
-      background: radial-gradient(circle at 30% 30%, #2d3e5e 0%, #101624 70%, #080b12 100%);
+      background: linear-gradient(rgba(8,10,16,0.14), rgba(8,10,16,0.30)), url('images/biblioteca_antica.jpg') center / cover no-repeat;
       display: flex; flex-direction: column; justify-content: space-between; padding: 28px;
     }
     .tv-badge {
@@ -182,9 +191,15 @@
         Importa un manoscritto Word (<code>.docx</code>) o testo, aggiungi immagini, video e musica di sottofondo sulla timeline e genera un <strong>VideoLibro MP4 Full HD</strong> con voce narrante neurale.
       </p>
       <div class="cta-row">
-        <a id="btn-download" class="btn-primary" href="https://github.com/lucoradev77/VideoLibro/releases/latest/download/VideoLibroStudio-Windows-x64.exe" target="_blank" rel="noopener">
-          <span data-i18n="downloadButton">⬇ Scarica per Windows 11 (.exe)</span>
-        </a>
+        <div class="download-block">
+          <a id="btn-download" class="btn-primary" href="https://github.com/lucoradev77/VideoLibro/releases/latest/download/VideoLibroStudio-Windows-x64.exe" target="_blank" rel="noopener">
+            <span data-i18n="downloadButton">⬇ Scarica per Windows 11 (.exe)</span>
+          </a>
+          <br/>
+          <p class="download-warning" data-i18n-html="downloadWarning">
+            <strong>Nota:</strong> Windows o l’antivirus potrebbero mostrare un avviso per il file .exe. Potrebbe trattarsi di un falso positivo: VideoLibro Studio è open source e puoi verificare il <a href="https://github.com/lucoradev77/VideoLibro">codice pubblicato su GitHub</a>.
+          </p>
+        </div>
         <a id="btn-github" class="btn-secondary" href="https://github.com/lucoradev77/VideoLibro" target="_blank" rel="noopener">
           <span data-i18n="sourceButton">Codice Sorgente su GitHub</span>
         </a>
@@ -280,6 +295,7 @@
         heroSubtitle: 'come un film sulla TV',
         heroDescription: 'Importa un manoscritto Word (<code>.docx</code>) o testo, aggiungi immagini, video e musica di sottofondo sulla timeline e genera un <strong>VideoLibro MP4 Full HD</strong> con voce narrante neurale.',
         downloadButton: '⬇ Scarica per Windows 11 (.exe)',
+        downloadWarning: '<strong>Nota:</strong> Windows o l’antivirus potrebbero mostrare un avviso per il file .exe. Potrebbe trattarsi di un falso positivo: VideoLibro Studio è open source e puoi verificare il <a href="https://github.com/lucoradev77/VideoLibro">codice pubblicato su GitHub</a>.',
         sourceButton: 'Codice sorgente su GitHub',
         subNote: 'Nessuna installazione complessa • FFmpeg incluso • 100% gratuito',
         storyTitle: 'La storia dietro VideoLibro Studio',
@@ -319,6 +335,7 @@
         heroSubtitle: 'like a movie on your TV',
         heroDescription: 'Import a Word manuscript (<code>.docx</code>) or text, add images, video, and background music to the timeline, then create a <strong>Full HD MP4 VideoBook</strong> with neural narration.',
         downloadButton: '⬇ Download for Windows 11 (.exe)',
+        downloadWarning: '<strong>Note:</strong> Windows or antivirus software may display a warning for the .exe file. This may be a false positive: VideoLibro Studio is open source, and you can review the <a href="https://github.com/lucoradev77/VideoLibro">source code published on GitHub</a>.',
         sourceButton: 'Source code on GitHub',
         subNote: 'No complicated installation • FFmpeg included • 100% free',
         storyTitle: 'The story behind VideoLibro Studio',

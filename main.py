@@ -40,7 +40,7 @@ def main() -> int:
     win = MainWindow(workspace)
     if icon_path.exists():
         win.setWindowIcon(QIcon(str(icon_path)))
-    win.show()
+    win.showMaximized()
     return app.exec()
 
 

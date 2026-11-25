@@ -28,7 +28,7 @@ if errorlevel 1 goto setup_failed
 
 :install_dependencies
 echo Installing project dependencies...
-"%VENV_PY%" -m pip install -e "%~dp0"
+"%VENV_PY%" -m pip install -e "%~dp0."
 if errorlevel 1 goto setup_failed
 
 :run_app
