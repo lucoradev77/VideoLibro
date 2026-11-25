@@ -1,8 +1,9 @@
 # Build standalone Windows 11 executable for VideoLibro Studio
 $ErrorActionPreference = "Stop"
 
-Write-Host "Installazione PyInstaller nell'ambiente uv..." -ForegroundColor Cyan
-uv add --dev pyinstaller
+Write-Host "Preparazione Python gestito da uv e dipendenze..." -ForegroundColor Cyan
+uv python install 3.12
+uv sync --locked --python 3.12 --managed-python
 
 Write-Host "Compilazione VideoLibroStudio.exe..." -ForegroundColor Cyan
 $pythonDllDir = (uv run python -c "import sys; print(sys.base_prefix + r'\DLLs')").Trim()

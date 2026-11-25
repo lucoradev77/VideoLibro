@@ -19,8 +19,10 @@ jobs:
         uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: true
-      - name: Set up Python 3.12 and dependencies
-        run: uv sync --locked --python 3.12
+      - name: Set up managed Python 3.12 and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --locked --python 3.12 --managed-python
       - name: Build Windows executable
         run: |
           $pythonDllDir = (uv run python -c "import sys; print(sys.base_prefix + r'\DLLs')").Trim()
