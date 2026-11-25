@@ -14,9 +14,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
       - name: Set up Python 3.12 and dependencies
@@ -31,7 +31,7 @@ jobs:
       - name: Rename release asset
         run: Copy-Item dist\VideoLibroStudio.exe dist\VideoLibroStudio-Windows-x64.exe
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: VideoLibroStudio-Windows-x64
           path: dist/VideoLibroStudio-Windows-x64.exe
@@ -40,11 +40,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install Linux runtime libraries
         run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-xinerama0 libgl1 espeak-ng
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
       - name: Set up Python 3.12 and dependencies
@@ -58,7 +58,7 @@ jobs:
       - name: Package Linux release
         run: tar -czf dist/VideoLibroStudio-Linux-x86_64.tar.gz -C dist VideoLibroStudio
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: VideoLibroStudio-Linux-x86_64
           path: dist/VideoLibroStudio-Linux-x86_64.tar.gz
@@ -67,9 +67,9 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
       - name: Set up Python 3.12 and dependencies
@@ -83,7 +83,7 @@ jobs:
       - name: Package macOS app
         run: ditto -c -k --sequesterRsrc --keepParent dist/VideoLibroStudio.app dist/VideoLibroStudio-macOS-AppleSilicon.zip
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: VideoLibroStudio-macOS-AppleSilicon
           path: dist/VideoLibroStudio-macOS-AppleSilicon.zip
@@ -94,12 +94,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all platform builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: release-assets
           merge-multiple: true
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release-assets/*
           generate_release_notes: true

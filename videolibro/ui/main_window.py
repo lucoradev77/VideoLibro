@@ -530,6 +530,10 @@ class MainWindow(QMainWindow):
     def _on_update_check_finished(self, reply) -> None:
         try:
             if reply.error():
+                if hasattr(self, "lbl_status"):
+                    self.lbl_status.setText(
+                        f"Controllo aggiornamenti non riuscito: {reply.errorString()}"
+                    )
                 return
             import json
 
@@ -545,8 +549,13 @@ class MainWindow(QMainWindow):
             if latest_version > current_version:
                 self._latest_release_tag = latest_tag
                 self._update_update_button()
+                if hasattr(self, "lbl_status"):
+                    self.lbl_status.setText(f"Aggiornamento {latest_tag} disponibile.")
+            elif hasattr(self, "lbl_status"):
+                self.lbl_status.setText(f"VideoLibro è aggiornato ({__version__}).")
         except (ValueError, TypeError, AttributeError):
-            pass
+            if hasattr(self, "lbl_status"):
+                self.lbl_status.setText("Risposta GitHub non valida durante il controllo aggiornamenti.")
         finally:
             reply.deleteLater()
 
