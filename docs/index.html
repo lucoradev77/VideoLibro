@@ -35,6 +35,16 @@
     .brand img { width: 36px; height: 36px; border-radius: 8px; }
     .nav-links { display: flex; gap: 24px; align-items: center; font-size: 0.95rem; color: var(--muted); }
     .nav-links a:hover { color: var(--gold); }
+    .language-switch { display: flex; gap: 4px; }
+    .lang-btn {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+      padding: 5px 9px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+    }
+    .lang-btn.active { border-color: var(--gold); color: var(--gold); font-weight: 700; }
+    @media (max-width: 600px) {
+      nav { flex-direction: column; gap: 16px; }
+      .nav-links { justify-content: center; flex-wrap: wrap; gap: 14px; }
+    }
 
     /* Hero */
     .hero { text-align: center; padding: 72px 0 56px; }
@@ -130,6 +140,16 @@
     .card h3 { margin-bottom: 8px; font-size: 1.12rem; color: var(--gold); }
     .card p { color: var(--muted); font-size: 0.95rem; }
 
+    /* Story */
+    .story-section { max-width: 900px; margin: 0 auto 72px; }
+    .story-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 32px;
+    }
+    .story-card p { color: var(--muted); margin-top: 16px; }
+    .story-card a { color: var(--gold); text-decoration: underline; }
+    .story-card strong { color: var(--text); }
+
     /* Footer */
     footer {
       border-top: 1px solid rgba(255,255,255,0.06);
@@ -145,94 +165,218 @@
         <span>VideoLibro Studio</span>
       </div>
       <div class="nav-links">
-        <a href="#funzioni">Funzioni</a>
-        <a id="nav-releases" href="https://github.com/lucoradev77/VideoLibro/releases" target="_blank" rel="noopener">Download</a>
+        <a href="#funzioni" data-i18n="navFeatures">Funzioni</a>
+        <a id="nav-releases" href="https://github.com/lucoradev77/VideoLibro/releases" target="_blank" rel="noopener" data-i18n="navDownload">Download</a>
         <a id="nav-repo" href="https://github.com/lucoradev77/VideoLibro" target="_blank" rel="noopener">GitHub</a>
+        <div id="language-switch" class="language-switch" role="group" aria-label="Lingua">
+          <button class="lang-btn active" type="button" lang="it" aria-pressed="true" onclick="setLanguage('it')">IT</button>
+          <button class="lang-btn" type="button" lang="en" aria-pressed="false" onclick="setLanguage('en')">EN</button>
+        </div>
       </div>
     </nav>
 
     <section class="hero">
-      <div class="badge">Open Source • Windows 11 • MIT License</div>
-      <h1>Leggi, ascolta e guarda i tuoi libri<br /><span>come un film sulla TV</span></h1>
-      <p>
+      <div class="badge" data-i18n="badge">Open Source • Windows 11 • MIT License</div>
+      <h1><span data-i18n="heroTitle">Leggi, ascolta e guarda i tuoi libri</span><br /><span data-i18n="heroSubtitle">come un film sulla TV</span></h1>
+      <p data-i18n-html="heroDescription">
         Importa un manoscritto Word (<code>.docx</code>) o testo, aggiungi immagini, video e musica di sottofondo sulla timeline e genera un <strong>VideoLibro MP4 Full HD</strong> con voce narrante neurale.
       </p>
       <div class="cta-row">
         <a id="btn-download" class="btn-primary" href="https://github.com/lucoradev77/VideoLibro/releases/latest/download/VideoLibroStudio-Windows-x64.exe" target="_blank" rel="noopener">
-          ⬇ Scarica per Windows 11 (.exe)
+          <span data-i18n="downloadButton">⬇ Scarica per Windows 11 (.exe)</span>
         </a>
         <a id="btn-github" class="btn-secondary" href="https://github.com/lucoradev77/VideoLibro" target="_blank" rel="noopener">
-          Codice Sorgente su GitHub
+          <span data-i18n="sourceButton">Codice Sorgente su GitHub</span>
         </a>
       </div>
-      <div class="sub-note">Nessuna installazione complessa • FFmpeg incluso • 100% Gratuito</div>
+      <div class="sub-note" data-i18n="subNote">Nessuna installazione complessa • FFmpeg incluso • 100% Gratuito</div>
+    </section>
+
+    <section class="story-section">
+      <h2 class="section-title" data-i18n="storyTitle">La storia dietro VideoLibro Studio</h2>
+      <div class="story-card">
+        <p data-i18n-html="storyIntroduction">
+          Ciao, mi chiamo <a href="mailto:lucoradev@outlook.it"><strong>Luca Corallo</strong></a>.
+        </p>
+        <p data-i18n-html="storyInspiration">
+          Da qualche anno sono appassionato di manoscritti. Oggi esistono i libri in PDF, gli EPUB e gli audiolibri. Un giorno però mi sono chiesto: <em>se guardo un film che di fatto è una storia scritta... perché non inventiamo i <strong>VideoLibri</strong>?</em>
+        </p>
+        <p data-i18n-html="storyProject">
+          Da questa idea è nato <strong>VideoLibro Studio</strong>: uno strumento open source per Windows 11 pensato per prendere un manoscritto (come un file Word <code>.docx</code>), suddividerlo in capitoli, arricchirlo su una timeline con immagini, clip video, musica di sottofondo e voce narrante TTS, ed esportare un vero file <strong>MP4 Full HD</strong> da guardare e ascoltare comodamente in TV.
+        </p>
+      </div>
     </section>
 
     <section class="tv-section">
       <div class="tv-frame">
         <div class="tv-screen">
-          <div class="tv-badge">Capitolo I — La Biblioteca Sommersa</div>
-          <div id="tv-card" class="tv-card cinema">
+          <div class="tv-badge" data-i18n="tvBadge">Capitolo I — La Biblioteca Sommersa</div>
+          <div id="tv-card" class="tv-card cinema" data-i18n="tvQuote">
             “Quando Elena aprì la porta di quercia, l'odore di pergamena antica riempì la stanza silenziosa. Il manoscritto era pronto per essere guardato e ascoltato.”
           </div>
         </div>
       </div>
       <div class="style-tabs">
-        <button class="style-btn active" onclick="setTvStyle('cinema', this)">Libro Cinematografico</button>
-        <button class="style-btn" onclick="setTvStyle('subs', this)">Sottotitoli Cinema</button>
-        <button class="style-btn" onclick="setTvStyle('parchment', this)">Pagina Antica</button>
-        <button class="style-btn" onclick="setTvStyle('minimal', this)">Minimal Elegante</button>
-        <button class="style-btn" onclick="setTvStyle('night', this)">Notturno Blu</button>
+        <button class="style-btn active" onclick="setTvStyle('cinema', this)" data-i18n="styleCinema">Libro Cinematografico</button>
+        <button class="style-btn" onclick="setTvStyle('subs', this)" data-i18n="styleSubs">Sottotitoli Cinema</button>
+        <button class="style-btn" onclick="setTvStyle('parchment', this)" data-i18n="styleParchment">Pagina Antica</button>
+        <button class="style-btn" onclick="setTvStyle('minimal', this)" data-i18n="styleMinimal">Minimal Elegante</button>
+        <button class="style-btn" onclick="setTvStyle('night', this)" data-i18n="styleNight">Notturno Blu</button>
       </div>
     </section>
 
     <section id="funzioni">
-      <h2 class="section-title">Tutto quello che serve per creare un VideoLibro</h2>
+      <h2 class="section-title" data-i18n="featuresTitle">Tutto quello che serve per creare un VideoLibro</h2>
       <div class="grid">
         <div class="card">
           <div class="card-icon">📄</div>
-          <h3>Importazione da Word & Testo</h3>
-          <p>Carica file <code>.docx</code>, <code>.txt</code> o <code>.md</code>. I capitoli vengono rilevati automaticamente dai titoli oppure divisi manualmente.</p>
+          <h3 data-i18n="featureImportTitle">Importazione da Word & Testo</h3>
+          <p data-i18n-html="featureImport">Carica file <code>.docx</code>, <code>.txt</code> o <code>.md</code>. I capitoli vengono rilevati automaticamente dai titoli oppure divisi manualmente.</p>
         </div>
         <div class="card">
           <div class="card-icon">🎞️</div>
-          <h3>Timeline Multi-Traccia</h3>
-          <p>Controlla visivamente Capitoli, Scene di testo, Immagini/Video (con effetto Ken Burns) e tracce Audio in un'unica vista.</p>
+          <h3 data-i18n="featureTimelineTitle">Timeline Multi-Traccia</h3>
+          <p data-i18n="featureTimeline">Controlla visivamente Capitoli, Scene di testo, Immagini/Video (con effetto Ken Burns) e tracce Audio in un'unica vista.</p>
         </div>
         <div class="card">
           <div class="card-icon">🎙️</div>
-          <h3>Voce Narrante TTS Neurale</h3>
-          <p>Voci italiane naturali con sincronizzazione automatica della durata di ogni scena e fallback offline su Windows.</p>
+          <h3 data-i18n="featureVoiceTitle">Voce Narrante TTS Neurale</h3>
+          <p data-i18n="featureVoice">Voci italiane naturali con sincronizzazione automatica della durata di ogni scena e fallback offline su Windows.</p>
         </div>
         <div class="card">
           <div class="card-icon">🎵</div>
-          <h3>Musica & Auto-Ducking</h3>
-          <p>Regola il volume della colonna sonora per ogni capitolo: il software abbassa la musica in automatico quando il narratore parla.</p>
+          <h3 data-i18n="featureMusicTitle">Musica & Auto-Ducking</h3>
+          <p data-i18n="featureMusic">Regola il volume della colonna sonora per ogni capitolo: il software abbassa la musica in automatico quando il narratore parla.</p>
         </div>
         <div class="card">
           <div class="card-icon">📺</div>
-          <h3>Pronto per Smart TV</h3>
-          <p>Esporta in MP4 Full HD 1920×1080 (H.264 + AAC) compatibile con chiavette USB, DLNA, Plex e YouTube.</p>
+          <h3 data-i18n="featureTvTitle">Pronto per Smart TV</h3>
+          <p data-i18n="featureTv">Esporta in MP4 Full HD 1920×1080 (H.264 + AAC) compatibile con chiavette USB, DLNA, Plex e YouTube.</p>
         </div>
         <div class="card">
           <div class="card-icon">💾</div>
-          <h3>Progetti Salvabili (.vlibro)</h3>
-          <p>Salva la timeline del tuo libro, modifica i testi o i media quando vuoi e riesporta in qualsiasi momento.</p>
+          <h3 data-i18n="featureProjectsTitle">Progetti Salvabili (.vlibro)</h3>
+          <p data-i18n="featureProjects">Salva la timeline del tuo libro, modifica i testi o i media quando vuoi e riesporta in qualsiasi momento.</p>
         </div>
       </div>
     </section>
 
     <footer>
-      VideoLibro Studio • Ideato da <a href="mailto:lucoradev@outlook.it" style="color: var(--gold); text-decoration: underline;">Luca Corallo</a> • Progetto Open Source sotto licenza MIT
+      <span data-i18n="footerPrefix">VideoLibro Studio • Ideato da</span>
+      <a href="mailto:lucoradev@outlook.it" style="color: var(--gold); text-decoration: underline;">Luca Corallo</a>
+      <span data-i18n="footerSuffix">• Progetto Open Source sotto licenza MIT</span>
     </footer>
   </div>
 
   <script>
+    const translations = {
+      it: {
+        title: 'VideoLibro Studio — Trasforma i Manoscritti in Cinema per TV',
+        languageLabel: 'Lingua',
+        navFeatures: 'Funzioni',
+        navDownload: 'Download',
+        badge: 'Open Source • Windows 11 • Licenza MIT',
+        heroTitle: 'Leggi, ascolta e guarda i tuoi libri',
+        heroSubtitle: 'come un film sulla TV',
+        heroDescription: 'Importa un manoscritto Word (<code>.docx</code>) o testo, aggiungi immagini, video e musica di sottofondo sulla timeline e genera un <strong>VideoLibro MP4 Full HD</strong> con voce narrante neurale.',
+        downloadButton: '⬇ Scarica per Windows 11 (.exe)',
+        sourceButton: 'Codice sorgente su GitHub',
+        subNote: 'Nessuna installazione complessa • FFmpeg incluso • 100% gratuito',
+        storyTitle: 'La storia dietro VideoLibro Studio',
+        storyIntroduction: 'Ciao, mi chiamo <a href="mailto:lucoradev@outlook.it"><strong>Luca Corallo</strong></a>.',
+        storyInspiration: 'Da qualche anno sono appassionato di manoscritti. Oggi esistono i libri in PDF, gli EPUB e gli audiolibri. Un giorno però mi sono chiesto: <em>se guardo un film che di fatto è una storia scritta... perché non inventiamo i <strong>VideoLibri</strong>?</em>',
+        storyProject: 'Da questa idea è nato <strong>VideoLibro Studio</strong>: uno strumento open source per Windows 11 pensato per prendere un manoscritto (come un file Word <code>.docx</code>), suddividerlo in capitoli, arricchirlo su una timeline con immagini, clip video, musica di sottofondo e voce narrante TTS, ed esportare un vero file <strong>MP4 Full HD</strong> da guardare e ascoltare comodamente in TV.',
+        tvBadge: 'Capitolo I — La Biblioteca Sommersa',
+        tvQuote: '“Quando Elena aprì la porta di quercia, l’odore di pergamena antica riempì la stanza silenziosa. Il manoscritto era pronto per essere guardato e ascoltato.”',
+        styleCinema: 'Libro Cinematografico',
+        styleSubs: 'Sottotitoli Cinema',
+        styleParchment: 'Pagina Antica',
+        styleMinimal: 'Minimal Elegante',
+        styleNight: 'Notturno Blu',
+        featuresTitle: 'Tutto quello che serve per creare un VideoLibro',
+        featureImportTitle: 'Importazione da Word e testo',
+        featureImport: 'Carica file <code>.docx</code>, <code>.txt</code> o <code>.md</code>. I capitoli vengono rilevati automaticamente dai titoli oppure divisi manualmente.',
+        featureTimelineTitle: 'Timeline multi-traccia',
+        featureTimeline: 'Controlla visivamente capitoli, scene di testo, immagini e video (con effetto Ken Burns) e tracce audio in un’unica vista.',
+        featureVoiceTitle: 'Voce narrante TTS neurale',
+        featureVoice: 'Voci italiane naturali con sincronizzazione automatica della durata di ogni scena e fallback offline su Windows.',
+        featureMusicTitle: 'Musica e auto-ducking',
+        featureMusic: 'Regola il volume della colonna sonora per ogni capitolo: il software abbassa automaticamente la musica quando il narratore parla.',
+        featureTvTitle: 'Pronto per Smart TV',
+        featureTv: 'Esporta in MP4 Full HD 1920×1080 (H.264 + AAC), compatibile con chiavette USB, DLNA, Plex e YouTube.',
+        featureProjectsTitle: 'Progetti salvabili (.vlibro)',
+        featureProjects: 'Salva la timeline del tuo libro, modifica testi o contenuti multimediali quando vuoi ed esporta di nuovo in qualsiasi momento.',
+        footerPrefix: 'VideoLibro Studio • Ideato da',
+        footerSuffix: '• Progetto open source sotto licenza MIT'
+      },
+      en: {
+        title: 'VideoLibro Studio — Turn Manuscripts into Movies for Your TV',
+        languageLabel: 'Language',
+        navFeatures: 'Features',
+        navDownload: 'Download',
+        badge: 'Open Source • Windows 11 • MIT License',
+        heroTitle: 'Read, listen to, and watch your books',
+        heroSubtitle: 'like a movie on your TV',
+        heroDescription: 'Import a Word manuscript (<code>.docx</code>) or text, add images, video, and background music to the timeline, then create a <strong>Full HD MP4 VideoBook</strong> with neural narration.',
+        downloadButton: '⬇ Download for Windows 11 (.exe)',
+        sourceButton: 'Source code on GitHub',
+        subNote: 'No complicated installation • FFmpeg included • 100% free',
+        storyTitle: 'The story behind VideoLibro Studio',
+        storyIntroduction: 'Hi, my name is <a href="mailto:lucoradev@outlook.it"><strong>Luca Corallo</strong></a>.',
+        storyInspiration: 'I have been passionate about manuscripts for several years. Today, we have PDF books, EPUBs, and audiobooks. One day, I wondered: <em>if a movie is essentially a written story brought to life, why not invent <strong>VideoBooks</strong>?</em>',
+        storyProject: 'That idea led to <strong>VideoLibro Studio</strong>: an open-source tool for Windows 11 designed to take a manuscript (such as a Word <code>.docx</code> file), split it into chapters, enrich it on a timeline with images, video clips, background music, and TTS narration, then export a real <strong>Full HD MP4</strong> to comfortably watch and listen to on your TV.',
+        tvBadge: 'Chapter I — The Sunken Library',
+        tvQuote: '“When Elena opened the oak door, the scent of ancient parchment filled the silent room. The manuscript was ready to be watched and heard.”',
+        styleCinema: 'Cinematic Book',
+        styleSubs: 'Cinema Subtitles',
+        styleParchment: 'Antique Page',
+        styleMinimal: 'Elegant Minimal',
+        styleNight: 'Blue Night',
+        featuresTitle: 'Everything you need to create a VideoBook',
+        featureImportTitle: 'Import from Word and text',
+        featureImport: 'Load <code>.docx</code>, <code>.txt</code>, or <code>.md</code> files. Chapters are detected automatically from headings or can be split manually.',
+        featureTimelineTitle: 'Multi-track timeline',
+        featureTimeline: 'Visually manage chapters, text scenes, images and video (with Ken Burns effect), and audio tracks—all in one view.',
+        featureVoiceTitle: 'Neural TTS narration',
+        featureVoice: 'Natural-sounding voices with automatic scene-duration synchronization and an offline fallback on Windows.',
+        featureMusicTitle: 'Music and auto-ducking',
+        featureMusic: 'Set the soundtrack volume for each chapter: the software automatically lowers the music while the narrator speaks.',
+        featureTvTitle: 'Ready for Smart TVs',
+        featureTv: 'Export Full HD 1920×1080 MP4 (H.264 + AAC), compatible with USB drives, DLNA, Plex, and YouTube.',
+        featureProjectsTitle: 'Saveable projects (.vlibro)',
+        featureProjects: 'Save your book timeline, edit text or media whenever you like, and export it again at any time.',
+        footerPrefix: 'VideoLibro Studio • Created by',
+        footerSuffix: '• Open-source project under the MIT License'
+      }
+    };
+
+    function setLanguage(language) {
+      const content = translations[language];
+      document.documentElement.lang = language;
+      document.title = content.title;
+      document.getElementById('language-switch').setAttribute('aria-label', content.languageLabel);
+      document.querySelectorAll('[data-i18n]').forEach(element => {
+        element.textContent = content[element.dataset.i18n];
+      });
+      document.querySelectorAll('[data-i18n-html]').forEach(element => {
+        element.innerHTML = content[element.dataset.i18nHtml];
+      });
+      document.querySelectorAll('.lang-btn').forEach(button => {
+        const active = button.lang === language;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+    }
+
     function setTvStyle(style, btn) {
       const card = document.getElementById('tv-card');
       card.className = 'tv-card ' + style;
       document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+    }
+
+    if (navigator.language.toLowerCase().startsWith('en')) {
+      setLanguage('en');
     }
 
     // Auto-configure GitHub links when hosted on <user>.github.io/<repo>/
