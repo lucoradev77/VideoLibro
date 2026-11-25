@@ -8,3 +8,18 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated media, demos & user projects
+demo_assets/
+*.mp4
+*.vlibro
+*.wav
+*.mp3
+*.spec
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+LibroWeb/

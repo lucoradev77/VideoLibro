@@ -24,10 +24,16 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("VideoLibro Studio")
-    workspace = Path(__file__).resolve().parent
-    icon_path = workspace / "assets" / "videolibro.ico"
+    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    if getattr(sys, "frozen", False):
+        workspace = Path.home() / "Documents" / "VideoLibro"
+        workspace.mkdir(parents=True, exist_ok=True)
+    else:
+        workspace = Path(__file__).resolve().parent
+
+    icon_path = bundle_dir / "assets" / "videolibro.ico"
     if not icon_path.exists():
-        icon_path = workspace / "assets" / "videolibro.png"
+        icon_path = bundle_dir / "assets" / "videolibro.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoLibro Studio — Trasforma i Manoscritti in Cinema per TV</title>
+  <link rel="icon" type="image/png" href="videolibro.png" />
+  <style>
+    :root {
+      --bg: #0c1018;
+      --surface: #141a27;
+      --surface-2: #1b2334;
+      --border: #2a344b;
+      --text: #eef2f9;
+      --muted: #9aa7be;
+      --gold: #e0b46a;
+      --gold-dark: #c49343;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1a2338 0%, var(--bg) 55%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: inherit; text-decoration: none; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* Nav */
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.15rem; }
+    .brand img { width: 36px; height: 36px; border-radius: 8px; }
+    .nav-links { display: flex; gap: 24px; align-items: center; font-size: 0.95rem; color: var(--muted); }
+    .nav-links a:hover { color: var(--gold); }
+
+    /* Hero */
+    .hero { text-align: center; padding: 72px 0 56px; }
+    .badge {
+      display: inline-block; padding: 6px 14px; border-radius: 999px;
+      background: rgba(224,180,106,0.12); border: 1px solid rgba(224,180,106,0.35);
+      color: var(--gold); font-size: 0.85rem; font-weight: 600; margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: clamp(2.1rem, 4.5vw, 3.4rem);
+      line-height: 1.15; margin-bottom: 18px; font-weight: 800;
+    }
+    .hero h1 span { color: var(--gold); }
+    .hero p {
+      max-width: 680px; margin: 0 auto 34px;
+      color: var(--muted); font-size: 1.12rem;
+    }
+    .cta-row { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+      color: #10131b; font-weight: 700; padding: 14px 28px;
+      border-radius: 10px; font-size: 1.05rem;
+      box-shadow: 0 10px 30px rgba(224,180,106,0.25);
+      transition: transform 0.15s ease;
+    }
+    .btn-primary:hover { transform: translateY(-2px); }
+    .btn-secondary {
+      background: var(--surface-2); border: 1px solid var(--border);
+      color: var(--text); font-weight: 600; padding: 14px 26px; border-radius: 10px;
+    }
+    .btn-secondary:hover { border-color: var(--gold); }
+    .sub-note { margin-top: 14px; font-size: 0.85rem; color: var(--muted); }
+
+    /* Interactive TV Mockup */
+    .tv-section { margin: 24px auto 72px; max-width: 900px; }
+    .tv-frame {
+      background: #07090e; border: 3px solid #2b354b; border-radius: 18px;
+      padding: 16px; box-shadow: 0 30px 70px rgba(0,0,0,0.65);
+    }
+    .tv-screen {
+      position: relative; aspect-ratio: 16/9; border-radius: 10px; overflow: hidden;
+      background: radial-gradient(circle at 30% 30%, #2d3e5e 0%, #101624 70%, #080b12 100%);
+      display: flex; flex-direction: column; justify-content: space-between; padding: 28px;
+    }
+    .tv-badge {
+      align-self: flex-start; background: rgba(12,15,24,0.78);
+      border: 1px solid rgba(224,180,106,0.5); color: var(--gold);
+      padding: 6px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 700;
+    }
+    .tv-card {
+      padding: 22px 28px; border-radius: 14px; text-align: center;
+      font-family: Georgia, 'Times New Roman', serif; font-size: clamp(1rem, 2vw, 1.35rem);
+      transition: all 0.25s ease;
+    }
+    .tv-card.cinema {
+      background: rgba(12,15,24,0.82); border: 1px solid rgba(224,180,106,0.35); color: #f6f3ec;
+    }
+    .tv-card.subs {
+      background: transparent; border: none; color: #fff;
+      font-family: 'Segoe UI', sans-serif; font-weight: 700;
+      text-shadow: 0 2px 8px #000, 0 0 3px #000;
+    }
+    .tv-card.parchment {
+      background: rgba(244,234,212,0.92); border: 2px solid #a8844c; color: #2c2014;
+    }
+    .style-tabs {
+      display: flex; justify-content: center; gap: 10px; margin-top: 16px; flex-wrap: wrap;
+    }
+    .style-btn {
+      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.9rem;
+    }
+    .style-btn.active { border-color: var(--gold); color: var(--gold); font-weight: 600; }
+
+    /* Features */
+    .section-title { text-align: center; font-size: 1.9rem; margin-bottom: 36px; }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 20px; margin-bottom: 72px;
+    }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 24px;
+    }
+    .card-icon { font-size: 1.7rem; margin-bottom: 10px; }
+    .card h3 { margin-bottom: 8px; font-size: 1.12rem; color: var(--gold); }
+    .card p { color: var(--muted); font-size: 0.95rem; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 32px 0; text-align: center; color: var(--muted); font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <div class="brand">
+        <img src="videolibro.png" alt="VideoLibro Studio" />
+        <span>VideoLibro Studio</span>
+      </div>
+      <div class="nav-links">
+        <a href="#funzioni">Funzioni</a>
+        <a id="nav-releases" href="https://github.com" target="_blank" rel="noopener">Download</a>
+        <a id="nav-repo" href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <div class="badge">Open Source • Windows 11 • MIT License</div>
+      <h1>Leggi, ascolta e guarda i tuoi libri<br /><span>come un film sulla TV</span></h1>
+      <p>
+        Importa un manoscritto Word (<code>.docx</code>) o testo, aggiungi immagini, video e musica di sottofondo sulla timeline e genera un <strong>VideoLibro MP4 Full HD</strong> con voce narrante neurale.
+      </p>
+      <div class="cta-row">
+        <a id="btn-download" class="btn-primary" href="https://github.com" target="_blank" rel="noopener">
+          ⬇ Scarica per Windows 11 (.exe)
+        </a>
+        <a id="btn-github" class="btn-secondary" href="https://github.com" target="_blank" rel="noopener">
+          Codice Sorgente su GitHub
+        </a>
+      </div>
+      <div class="sub-note">Nessuna installazione complessa • FFmpeg incluso • 100% Gratuito</div>
+    </section>
+
+    <section class="tv-section">
+      <div class="tv-frame">
+        <div class="tv-screen">
+          <div class="tv-badge">Capitolo I — La Biblioteca Sommersa</div>
+          <div id="tv-card" class="tv-card cinema">
+            “Quando Elena aprì la porta di quercia, l'odore di pergamena antica riempì la stanza silenziosa. Il manoscritto era pronto per essere guardato e ascoltato.”
+          </div>
+        </div>
+      </div>
+      <div class="style-tabs">
+        <button class="style-btn active" onclick="setTvStyle('cinema', this)">Libro Cinematografico</button>
+        <button class="style-btn" onclick="setTvStyle('subs', this)">Sottotitoli Cinema</button>
+        <button class="style-btn" onclick="setTvStyle('parchment', this)">Pagina Antica</button>
+      </div>
+    </section>
+
+    <section id="funzioni">
+      <h2 class="section-title">Tutto quello che serve per creare un VideoLibro</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-icon">📄</div>
+          <h3>Importazione da Word & Testo</h3>
+          <p>Carica file <code>.docx</code>, <code>.txt</code> o <code>.md</code>. I capitoli vengono rilevati automaticamente dai titoli oppure divisi manualmente.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🎞️</div>
+          <h3>Timeline Multi-Traccia</h3>
+          <p>Controlla visivamente Capitoli, Scene di testo, Immagini/Video (con effetto Ken Burns) e tracce Audio in un'unica vista.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🎙️</div>
+          <h3>Voce Narrante TTS Neurale</h3>
+          <p>Voci italiane naturali con sincronizzazione automatica della durata di ogni scena e fallback offline su Windows.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🎵</div>
+          <h3>Musica & Auto-Ducking</h3>
+          <p>Regola il volume della colonna sonora per ogni capitolo: il software abbassa la musica in automatico quando il narratore parla.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📺</div>
+          <h3>Pronto per Smart TV</h3>
+          <p>Esporta in MP4 Full HD 1920×1080 (H.264 + AAC) compatibile con chiavette USB, DLNA, Plex e YouTube.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">💾</div>
+          <h3>Progetti Salvabili (.vlibro)</h3>
+          <p>Salva la timeline del tuo libro, modifica i testi o i media quando vuoi e riesporta in qualsiasi momento.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      VideoLibro Studio • Progetto Open Source sotto licenza MIT
+    </footer>
+  </div>
+
+  <script>
+    function setTvStyle(style, btn) {
+      const card = document.getElementById('tv-card');
+      card.className = 'tv-card ' + style;
+      document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    // Auto-configure GitHub links when hosted on <user>.github.io/<repo>/
+    (function () {
+      const host = window.location.hostname;
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      if (host.endsWith('.github.io') && parts.length >= 1) {
+        const user = host.replace('.github.io', '');
+        const repo = parts[0];
+        const repoUrl = `https://github.com/${user}/${repo}`;
+        const exeUrl = `${repoUrl}/releases/latest/download/VideoLibroStudio-Windows-x64.exe`;
+        document.getElementById('btn-download').href = exeUrl;
+        document.getElementById('btn-github').href = repoUrl;
+        document.getElementById('nav-releases').href = `${repoUrl}/releases`;
+        document.getElementById('nav-repo').href = repoUrl;
+      }
+    })();
+  </script>
+</body>
+</html>
