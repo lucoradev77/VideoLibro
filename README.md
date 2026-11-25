@@ -14,7 +14,7 @@
 
 ## 👋 Perché nasce VideoLibro Studio
 
-Ciao, mi chiamo **Luca**.
+Ciao, mi chiamo **Luca Corallo**.
 
 Da qualche anno sono appassionato di manoscritti. Oggi esistono i libri in PDF, gli EPUB e gli audiolibri. Un giorno però mi sono chiesto: *se guardo un film che di fatto è una storia scritta... perché non inventiamo i **VideoLibri**?*
 

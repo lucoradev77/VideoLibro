@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-import textwrap
+import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -16,6 +17,11 @@ from .models import Chapter, KenBurnsMode, SceneBlock, TimelineEntry, VideoBookP
 from .tts_engine import synthesize_scene_tts
 
 ProgressCallback = Callable[[int, str], None]
+SizeCallback = Callable[[int], None]
+
+
+class ExportCancelledError(Exception):
+    """Raised when the user cancels MP4 export."""
 
 _WIN_FONTS_DIR = Path(os.environ.get("WINDIR", "C:\\Windows")) / "Fonts"
 
@@ -41,6 +47,59 @@ def _get_sans_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | Im
     if bold:
         return _load_font(["segoeuib.ttf", "arialbd.ttf", "calibrib.ttf"], size)
     return _load_font(["segoeui.ttf", "arial.ttf", "calibri.ttf"], size)
+
+
+_FONT_MAP: dict[str, dict[str, list[str]]] = {
+    "Georgia": {
+        "Normale": ["georgia.ttf"],
+        "Grassetto": ["georgiab.ttf", "georgia.ttf"],
+        "Corsivo": ["georgiai.ttf", "georgia.ttf"],
+        "Grassetto Corsivo": ["georgiaz.ttf", "georgiab.ttf"],
+    },
+    "Palatino Linotype": {
+        "Normale": ["pala.ttf"],
+        "Grassetto": ["palab.ttf", "pala.ttf"],
+        "Corsivo": ["palai.ttf", "pala.ttf"],
+        "Grassetto Corsivo": ["palabi.ttf", "palab.ttf"],
+    },
+    "Times New Roman": {
+        "Normale": ["times.ttf"],
+        "Grassetto": ["timesbd.ttf", "times.ttf"],
+        "Corsivo": ["timesi.ttf", "times.ttf"],
+        "Grassetto Corsivo": ["timesbi.ttf", "timesbd.ttf"],
+    },
+    "Segoe UI": {
+        "Normale": ["segoeui.ttf"],
+        "Grassetto": ["segoeuib.ttf", "segoeui.ttf"],
+        "Corsivo": ["segoeuii.ttf", "segoeui.ttf"],
+        "Grassetto Corsivo": ["segoeuiz.ttf", "segoeuib.ttf"],
+    },
+    "Calibri": {
+        "Normale": ["calibri.ttf"],
+        "Grassetto": ["calibrib.ttf", "calibri.ttf"],
+        "Corsivo": ["calibrii.ttf", "calibri.ttf"],
+        "Grassetto Corsivo": ["calibriz.ttf", "calibrib.ttf"],
+    },
+    "Arial": {
+        "Normale": ["arial.ttf"],
+        "Grassetto": ["arialbd.ttf", "arial.ttf"],
+        "Corsivo": ["ariali.ttf", "arial.ttf"],
+        "Grassetto Corsivo": ["arialbi.ttf", "arialbd.ttf"],
+    },
+    "Garamond": {
+        "Normale": ["gara.ttf", "georgia.ttf"],
+        "Grassetto": ["garabd.ttf", "georgiab.ttf"],
+        "Corsivo": ["garait.ttf", "georgiai.ttf"],
+        "Grassetto Corsivo": ["garabd.ttf", "georgiaz.ttf"],
+    },
+}
+
+
+def get_custom_font(family: str, variant: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Resolve user-selected font family and variant (Normale/Grassetto/Corsivo/Grassetto Corsivo)."""
+    fam_map = _FONT_MAP.get(family, _FONT_MAP["Georgia"])
+    candidates = fam_map.get(variant, fam_map["Normale"]) + ["georgia.ttf", "segoeui.ttf"]
+    return _load_font(candidates, size)
 
 
 def _hex_to_rgb(hex_color: str, fallback: tuple[int, int, int] = (224, 180, 106)) -> tuple[int, int, int]:
@@ -164,8 +223,8 @@ def render_scene_overlay(
     draw.text((pad_x + int(16 * scale), pad_y + int(7 * scale)), badge_text, font=badge_font, fill=(*accent, 245))
 
     # Main text rendering by style
+    text_font = get_custom_font(project.settings.font_family, project.settings.font_variant, font_size)
     if style == "Sottotitoli Cinema":
-        text_font = _get_sans_font(font_size, bold=True)
         lines = _wrap_text_to_width(draw, scene.text, text_font, int(width * 0.80))
         line_h = int(font_size * 1.38)
         total_h = len(lines) * line_h
@@ -187,7 +246,6 @@ def render_scene_overlay(
             y += line_h
 
     elif style == "Pagina Antica":
-        text_font = _get_serif_font(font_size, bold=False)
         card_w = int(width * 0.78)
         lines = _wrap_text_to_width(draw, scene.text, text_font, card_w - int(110 * scale))
         line_h = int(font_size * 1.45)
@@ -207,9 +265,54 @@ def render_scene_overlay(
             draw.text((card_x + int(55 * scale), y), line, font=text_font, fill=(44, 32, 20, 255))
             y += line_h
 
+    elif style == "Minimal Elegante":
+        lines = _wrap_text_to_width(draw, scene.text, text_font, int(width * 0.76))
+        line_h = int(font_size * 1.48)
+        total_h = len(lines) * line_h
+        start_y = height - total_h - int(92 * scale)
+
+        # Soft bottom gradient scrim
+        band_top = max(0, start_y - int(65 * scale))
+        draw.rectangle([0, band_top, width, height], fill=(8, 10, 16, 155))
+        rule_w = int(280 * scale)
+        rule_y = start_y - int(22 * scale)
+        draw.line([(width // 2 - rule_w // 2, rule_y), (width // 2 + rule_w // 2, rule_y)], fill=(*accent, 210), width=max(1, int(2 * scale)))
+
+        y = start_y
+        for line in lines:
+            lb = draw.textbbox((0, 0), line, font=text_font)
+            lw = lb[2] - lb[0]
+            x = (width - lw) / 2
+            draw.text((x + 1, y + 2), line, font=text_font, fill=(0, 0, 0, 215))
+            draw.text((x, y), line, font=text_font, fill=(248, 246, 240, 255))
+            y += line_h
+
+    elif style == "Notturno Blu":
+        card_w = int(width * 0.82)
+        lines = _wrap_text_to_width(draw, scene.text, text_font, card_w - int(120 * scale))
+        line_h = int(font_size * 1.45)
+        card_h = max(int(170 * scale), len(lines) * line_h + int(84 * scale))
+        card_x = (width - card_w) // 2
+        card_y = height - card_h - int(64 * scale)
+
+        draw.rounded_rectangle(
+            [card_x, card_y, card_x + card_w, card_y + card_h],
+            radius=int(22 * scale),
+            fill=(10, 20, 40, 215),
+            outline=(120, 185, 245, 165),
+            width=max(2, int(2 * scale)),
+        )
+        y = card_y + int(40 * scale)
+        for line in lines:
+            lb = draw.textbbox((0, 0), line, font=text_font)
+            lw = lb[2] - lb[0]
+            x = (width - lw) / 2
+            draw.text((x + 1, y + 2), line, font=text_font, fill=(0, 0, 0, 200))
+            draw.text((x, y), line, font=text_font, fill=(230, 242, 255, 255))
+            y += line_h
+
     else:
         # "Libro Cinematografico" (Default)
-        text_font = _get_serif_font(font_size, bold=False)
         card_w = int(width * 0.82)
         lines = _wrap_text_to_width(draw, scene.text, text_font, card_w - int(120 * scale))
         line_h = int(font_size * 1.45)
@@ -311,18 +414,29 @@ def _zoompan_filter(mode: KenBurnsMode, width: int, height: int, fps: int, frame
     return f"{base},{zp}"
 
 
-def _run_ffmpeg(args: list[str]) -> None:
+def _run_ffmpeg(args: list[str], cancel_event: threading.Event | None = None) -> None:
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         [ffmpeg_exe, "-y", *args],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    while proc.poll() is None:
+        if cancel_event and cancel_event.is_set():
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            raise ExportCancelledError("Esportazione annullata dall'utente.")
+        time.sleep(0.15)
+    _, stderr = proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"FFmpeg error:\n{proc.stderr[-1200:]}")
+        raise RuntimeError(f"FFmpeg error:\n{(stderr or '')[-1200:]}")
 
 
 def export_project_to_mp4(
@@ -330,6 +444,8 @@ def export_project_to_mp4(
     output_mp4: str | Path,
     generate_missing_tts: bool = True,
     progress_cb: ProgressCallback | None = None,
+    size_cb: SizeCallback | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """Render the complete VideoLibro project to a TV-ready H.264/AAC MP4 file."""
     out_path = Path(output_mp4)
@@ -347,6 +463,8 @@ def export_project_to_mp4(
         if generate_missing_tts:
             for ch in project.chapters:
                 for sc in ch.scenes:
+                    if cancel_event and cancel_event.is_set():
+                        raise ExportCancelledError("Esportazione annullata dall'utente.")
                     done_scenes += 1
                     if not sc.tts_audio_path or not Path(sc.tts_audio_path).exists():
                         if progress_cb:
@@ -372,7 +490,10 @@ def export_project_to_mp4(
         segment_paths: list[Path] = []
 
         # 2. Render each timeline segment
+        accumulated_bytes = 0
         for idx, entry in enumerate(entries):
+            if cancel_event and cancel_event.is_set():
+                raise ExportCancelledError("Esportazione annullata dall'utente.")
             if progress_cb:
                 pct = int(30 + 60 * (idx / len(entries)))
                 progress_cb(pct, f"Rendering scena {idx + 1}/{len(entries)}: {entry.label}")
@@ -478,8 +599,12 @@ def export_project_to_mp4(
                 f"{dur:.2f}",
                 str(seg_mp4),
             ]
-            _run_ffmpeg(args)
+            _run_ffmpeg(args, cancel_event=cancel_event)
             segment_paths.append(seg_mp4)
+            if seg_mp4.exists():
+                accumulated_bytes += seg_mp4.stat().st_size
+                if size_cb:
+                    size_cb(accumulated_bytes)
 
         # 3. Concatenate all segments into final MP4
         if progress_cb:
@@ -503,8 +628,11 @@ def export_project_to_mp4(
                 "-movflags",
                 "+faststart",
                 str(out_path),
-            ]
+            ],
+            cancel_event=cancel_event,
         )
+        if out_path.exists() and size_cb:
+            size_cb(out_path.stat().st_size)
 
     if progress_cb:
         progress_cb(100, f"VideoLibro completato: {out_path.name}")

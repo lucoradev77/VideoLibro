@@ -6,6 +6,7 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
+from ..i18n import tr
 from ..models import TimelineEntry
 
 
@@ -21,8 +22,13 @@ class TimelineWidget(QWidget):
         self._px_per_sec: float = 28.0
         self._selected_key: tuple[int, int | None] | None = None
         self._hit_boxes: list[tuple[QRectF, TimelineEntry]] = []
+        self._lang: str = "it"
         self.setMinimumHeight(195)
         self.setMouseTracking(True)
+
+    def set_language(self, lang: str) -> None:
+        self._lang = lang
+        self.update()
 
     def set_timeline(self, entries: list[TimelineEntry], total_duration: float) -> None:
         self._entries = entries
@@ -56,10 +62,10 @@ class TimelineWidget(QWidget):
 
         # Track definitions
         tracks = [
-            ("CAPITOLI", 28, 34, QColor("#171B26")),
-            ("SCENE / TESTO", 66, 42, QColor("#141822")),
-            ("MEDIA (IMG/VID)", 112, 34, QColor("#171B26")),
-            ("AUDIO / BGM", 150, 34, QColor("#141822")),
+            (tr(self._lang, "tl_track_chapters"), 28, 34, QColor("#171B26")),
+            (tr(self._lang, "tl_track_scenes"), 66, 42, QColor("#141822")),
+            (tr(self._lang, "tl_track_media"), 112, 34, QColor("#171B26")),
+            (tr(self._lang, "tl_track_audio"), 150, 34, QColor("#141822")),
         ]
 
         # Draw track lanes & headers

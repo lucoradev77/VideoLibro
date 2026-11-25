@@ -8,7 +8,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
-TextStyleMode = Literal["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica"]
+TextStyleMode = Literal[
+    "Libro Cinematografico",
+    "Sottotitoli Cinema",
+    "Pagina Antica",
+    "Minimal Elegante",
+    "Notturno Blu",
+]
 MediaType = Literal["none", "image", "video"]
 KenBurnsMode = Literal["zoom_in", "zoom_out", "pan_left", "pan_right", "static"]
 TTSEngine = Literal["edge-tts", "offline"]
@@ -72,6 +78,8 @@ class ProjectSettings:
     tts_voice: str = "it-IT-DiegoNeural"
     tts_rate: str = "+0%"
     text_style: TextStyleMode = "Libro Cinematografico"
+    font_family: str = "Georgia"
+    font_variant: str = "Normale"
     font_size: int = 40
     global_bg_audio_path: str = ""
     global_bg_audio_volume: float = 0.20

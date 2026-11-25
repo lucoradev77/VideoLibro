@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
+import threading
 from pathlib import Path
 
 from PIL.ImageQt import ImageQt
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QSettings, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -29,6 +32,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QTabWidget,
+    QTextBrowser,
     QTextEdit,
     QToolBar,
     QTreeWidget,
@@ -37,23 +41,35 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..i18n import tr
 from ..importer import import_manuscript_file, split_text_into_scenes
 from ..models import Chapter, SceneBlock, VideoBookProject
-from ..renderer import export_project_to_mp4, render_preview_frame
+from ..renderer import ExportCancelledError, export_project_to_mp4, render_preview_frame
 from ..sample_generator import build_demo_project
 from ..tts_engine import ITALIAN_VOICES, synthesize_scene_tts
+from .export_dialog import ExportProgressDialog
 from .timeline_widget import TimelineWidget
+
+BUILTIN_BACKGROUNDS = [
+    ("Biblioteca Antica (Calda)", "biblioteca_antica.jpg"),
+    ("Torre della Luna (Notte)", "torre_luna.jpg"),
+    ("Mare Stellato (Orizzonte)", "mare_stellato.jpg"),
+    ("Foresta d'Oro (Bosco)", "foresta_oro.jpg"),
+]
 
 
 class ExportWorker(QThread):
     progress = Signal(int, str)
+    size_updated = Signal(int)
     finished_ok = Signal(str)
+    cancelled = Signal()
     failed = Signal(str)
 
-    def __init__(self, project: VideoBookProject, output_path: str) -> None:
+    def __init__(self, project: VideoBookProject, output_path: str, cancel_event: threading.Event) -> None:
         super().__init__()
         self.project = project
         self.output_path = output_path
+        self.cancel_event = cancel_event
 
     def run(self) -> None:
         try:
@@ -62,8 +78,12 @@ class ExportWorker(QThread):
                 self.output_path,
                 generate_missing_tts=True,
                 progress_cb=lambda p, m: self.progress.emit(p, m),
+                size_cb=lambda b: self.size_updated.emit(b),
+                cancel_event=self.cancel_event,
             )
             self.finished_ok.emit(str(out))
+        except ExportCancelledError:
+            self.cancelled.emit()
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -112,6 +132,8 @@ class MainWindow(QMainWindow):
         self.tts_cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.project = VideoBookProject()
+        self._settings_store = QSettings("VideoLibroStudio", "App")
+        self._lang: str = str(self._settings_store.value("ui_language", "it"))
         self._sel_chapter: int = 0
         self._sel_scene: int | None = None
         self._updating_ui: bool = False
@@ -121,11 +143,23 @@ class MainWindow(QMainWindow):
         self._player = QMediaPlayer(self)
         self._player.setAudioOutput(self._audio_out)
 
+        self._bgm_out = QAudioOutput(self)
+        self._bgm_player = QMediaPlayer(self)
+        self._bgm_player.setAudioOutput(self._bgm_out)
+
+        self._test_timer = QTimer(self)
+        self._test_timer.setSingleShot(True)
+        self._test_timer.timeout.connect(self._advance_full_preview)
+        self._test_entries: list = []
+        self._test_index: int = 0
+        self._is_testing: bool = False
+
         self.setWindowTitle("VideoLibro Studio — Manoscritti in Cinema per TV")
         self.resize(1420, 900)
         self._apply_dark_theme()
         self._build_toolbar()
         self._build_layout()
+        self._retranslate_ui()
 
         # Load demo project on first launch so user sees something rich immediately
         self.load_demo_project()
@@ -200,32 +234,57 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
         self.addToolBar(tb)
 
-        btn_import = QPushButton("📄 Importa Manoscritto (.docx / .txt)")
-        btn_import.clicked.connect(self.import_manuscript_dialog)
-        tb.addWidget(btn_import)
+        self.btn_import = QPushButton("📄 Importa Manoscritto (.docx / .txt)")
+        self.btn_import.clicked.connect(self.import_manuscript_dialog)
+        tb.addWidget(self.btn_import)
 
-        btn_demo = QPushButton("✨ Carica Demo")
-        btn_demo.clicked.connect(self.load_demo_project)
-        tb.addWidget(btn_demo)
+        self.btn_demo = QPushButton("✨ Carica Demo")
+        self.btn_demo.clicked.connect(self.load_demo_project)
+        tb.addWidget(self.btn_demo)
 
-        btn_open = QPushButton("📂 Apri (.vlibro)")
-        btn_open.clicked.connect(self.open_project_dialog)
-        tb.addWidget(btn_open)
+        self.btn_open = QPushButton("📂 Apri (.vlibro)")
+        self.btn_open.clicked.connect(self.open_project_dialog)
+        tb.addWidget(self.btn_open)
 
-        btn_save = QPushButton("💾 Salva")
-        btn_save.clicked.connect(self.save_project_dialog)
-        tb.addWidget(btn_save)
+        self.btn_save = QPushButton("💾 Salva")
+        self.btn_save.clicked.connect(self.save_project_dialog)
+        tb.addWidget(self.btn_save)
 
         tb.addSeparator()
 
-        btn_tts_all = QPushButton("🎙️ Genera Voci TTS")
-        btn_tts_all.clicked.connect(self.generate_all_tts)
-        tb.addWidget(btn_tts_all)
+        self.btn_tts_all = QPushButton("🎙️ Genera Voci TTS")
+        self.btn_tts_all.clicked.connect(self.generate_all_tts)
+        tb.addWidget(self.btn_tts_all)
 
         self.btn_export = QPushButton("🎬 Esporta VideoLibro MP4 (TV)")
         self.btn_export.setObjectName("ExportBtn")
         self.btn_export.clicked.connect(self.export_mp4_dialog)
         tb.addWidget(self.btn_export)
+
+        tb.addSeparator()
+
+        self.btn_help = QPushButton("❓ Guida")
+        self.btn_help.clicked.connect(self.show_help_dialog)
+        tb.addWidget(self.btn_help)
+
+        self.cmb_lang = QComboBox()
+        self.cmb_lang.addItem("🌐 Italiano", "it")
+        self.cmb_lang.addItem("🌐 English", "en")
+        l_idx = self.cmb_lang.findData(self._lang)
+        if l_idx >= 0:
+            self.cmb_lang.setCurrentIndex(l_idx)
+        self.cmb_lang.currentIndexChanged.connect(self._on_language_changed)
+        tb.addWidget(self.cmb_lang)
+
+        tb.addSeparator()
+
+        self.cmb_quick_style = QComboBox()
+        self.cmb_quick_style.addItems(
+            ["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica", "Minimal Elegante", "Notturno Blu"]
+        )
+        self.cmb_quick_style.setToolTip("Stile visivo sulla TV")
+        self.cmb_quick_style.currentTextChanged.connect(self._on_quick_style_changed)
+        tb.addWidget(self.cmb_quick_style)
 
     def _build_layout(self) -> None:
         central = QWidget()
@@ -240,7 +299,8 @@ class MainWindow(QMainWindow):
         left_panel = QWidget()
         left_lay = QVBoxLayout(left_panel)
         left_lay.setContentsMargins(0, 0, 0, 0)
-        left_lay.addWidget(QLabel("📚 Capitoli e Scene del Manoscritto"))
+        self.lbl_left_hdr = QLabel("📚 Capitoli e Scene del Manoscritto")
+        left_lay.addWidget(self.lbl_left_hdr)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
@@ -248,15 +308,15 @@ class MainWindow(QMainWindow):
         left_lay.addWidget(self.tree)
 
         ch_btns = QHBoxLayout()
-        b_add_ch = QPushButton("+ Capitolo")
-        b_add_ch.clicked.connect(self.add_chapter)
-        b_add_sc = QPushButton("+ Scena")
-        b_add_sc.clicked.connect(self.add_scene)
-        b_del = QPushButton("Elimina")
-        b_del.clicked.connect(self.delete_selected)
-        ch_btns.addWidget(b_add_ch)
-        ch_btns.addWidget(b_add_sc)
-        ch_btns.addWidget(b_del)
+        self.b_add_ch = QPushButton("+ Capitolo")
+        self.b_add_ch.clicked.connect(self.add_chapter)
+        self.b_add_sc = QPushButton("+ Scena")
+        self.b_add_sc.clicked.connect(self.add_scene)
+        self.b_del = QPushButton("Elimina")
+        self.b_del.clicked.connect(self.delete_selected)
+        ch_btns.addWidget(self.b_add_ch)
+        ch_btns.addWidget(self.b_add_sc)
+        ch_btns.addWidget(self.b_del)
         left_lay.addLayout(ch_btns)
 
         # CENTER: Live 16:9 TV Preview
@@ -267,11 +327,18 @@ class MainWindow(QMainWindow):
         hdr_row = QHBoxLayout()
         self.lbl_preview_info = QLabel("📺 Anteprima TV 16:9")
         self.lbl_preview_info.setStyleSheet("font-weight: bold; color: #E0B46A;")
-        btn_listen = QPushButton("🔊 Ascolta Scena (TTS)")
-        btn_listen.clicked.connect(self.preview_scene_tts)
+        self.btn_test_play = QPushButton("▶ Test Completo")
+        self.btn_test_play.clicked.connect(self.start_full_preview)
+        self.btn_test_stop = QPushButton("⏹ Stop")
+        self.btn_test_stop.setEnabled(False)
+        self.btn_test_stop.clicked.connect(self.stop_full_preview)
+        self.btn_listen = QPushButton("🔊 Ascolta Scena (TTS)")
+        self.btn_listen.clicked.connect(self.preview_scene_tts)
         hdr_row.addWidget(self.lbl_preview_info)
         hdr_row.addStretch()
-        hdr_row.addWidget(btn_listen)
+        hdr_row.addWidget(self.btn_test_play)
+        hdr_row.addWidget(self.btn_test_stop)
+        hdr_row.addWidget(self.btn_listen)
         center_lay.addLayout(hdr_row)
 
         self.preview_label = QLabel()
@@ -281,13 +348,14 @@ class MainWindow(QMainWindow):
         center_lay.addWidget(self.preview_label, 1)
 
         # RIGHT: Inspector Tabs
-        right_tabs = QTabWidget()
-        right_tabs.setMinimumWidth(360)
+        self.right_tabs = QTabWidget()
+        self.right_tabs.setMinimumWidth(360)
 
         # Tab 1: Scene & Media
         tab_scene = QWidget()
         ts_lay = QVBoxLayout(tab_scene)
-        ts_lay.addWidget(QLabel("Testo proiettato su TV:"))
+        self.lbl_scene_text = QLabel("Testo proiettato su TV:")
+        ts_lay.addWidget(self.lbl_scene_text)
         self.txt_scene = QTextEdit()
         self.txt_scene.textChanged.connect(self._on_scene_edited)
         ts_lay.addWidget(self.txt_scene, 1)
@@ -296,15 +364,21 @@ class MainWindow(QMainWindow):
         media_row = QHBoxLayout()
         self.lbl_scene_media = QLineEdit()
         self.lbl_scene_media.setReadOnly(True)
-        btn_pick_sc_media = QPushButton("Sfoglia...")
-        btn_pick_sc_media.clicked.connect(self.pick_scene_media)
+        self.btn_pick_sc_media = QPushButton("Sfoglia...")
+        self.btn_pick_sc_media.clicked.connect(self.pick_scene_media)
         media_row.addWidget(self.lbl_scene_media)
-        media_row.addWidget(btn_pick_sc_media)
+        media_row.addWidget(self.btn_pick_sc_media)
         scene_form.addRow("Media Scena:", media_row)
 
         self.chk_use_ch_media = QCheckBox("Usa media del Capitolo")
         self.chk_use_ch_media.toggled.connect(self._on_scene_edited)
-        scene_form.addRow("", self.chk_use_ch_media)
+        self.btn_extend_media = QPushButton("Estendi alle successive")
+        self.btn_extend_media.setToolTip("Applica l'immagine/video di questa scena anche a tutte le scene successive del capitolo")
+        self.btn_extend_media.clicked.connect(self.extend_media_to_next_scenes)
+        ext_row = QHBoxLayout()
+        ext_row.addWidget(self.chk_use_ch_media)
+        ext_row.addWidget(self.btn_extend_media)
+        scene_form.addRow("", ext_row)
 
         self.cmb_ken_burns = QComboBox()
         self.cmb_ken_burns.addItems(["zoom_in", "zoom_out", "pan_left", "pan_right", "static"])
@@ -318,7 +392,7 @@ class MainWindow(QMainWindow):
         scene_form.addRow("Pausa finale (sec):", self.spin_pause)
 
         ts_lay.addLayout(scene_form)
-        right_tabs.addTab(tab_scene, "Scena & Media")
+        self.right_tabs.addTab(tab_scene, "Scena & Media")
 
         # Tab 2: Chapter & Background Audio
         tab_ch = QWidget()
@@ -344,6 +418,17 @@ class MainWindow(QMainWindow):
         ch_m_row.addWidget(btn_ch_media)
         tc_form.addRow("Sfondo Capitolo:", ch_m_row)
 
+        preset_row = QHBoxLayout()
+        self.cmb_preset_bg = QComboBox()
+        for label, fname in BUILTIN_BACKGROUNDS:
+            self.cmb_preset_bg.addItem(label, fname)
+        self.cmb_preset_bg.currentIndexChanged.connect(self.apply_preset_bg_to_chapter)
+        self.btn_apply_bg_all = QPushButton("Applica a tutto il libro")
+        self.btn_apply_bg_all.clicked.connect(self.apply_chapter_bg_to_whole_book)
+        preset_row.addWidget(self.cmb_preset_bg, 1)
+        preset_row.addWidget(self.btn_apply_bg_all)
+        tc_form.addRow("Sfondo Predefinito:", preset_row)
+
         ch_a_row = QHBoxLayout()
         self.edt_ch_audio = QLineEdit()
         self.edt_ch_audio.setReadOnly(True)
@@ -362,7 +447,7 @@ class MainWindow(QMainWindow):
         vol_row.addWidget(self.lbl_ch_vol)
         tc_form.addRow("Volume Sottofondo:", vol_row)
 
-        right_tabs.addTab(tab_ch, "Capitolo & Musica")
+        self.right_tabs.addTab(tab_ch, "Capitolo & Musica")
 
         # Tab 3: Global TV & TTS Settings
         tab_set = QWidget()
@@ -388,9 +473,23 @@ class MainWindow(QMainWindow):
         tset_form.addRow("Motore TTS:", self.cmb_tts_engine)
 
         self.cmb_style = QComboBox()
-        self.cmb_style.addItems(["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica"])
+        self.cmb_style.addItems(
+            ["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica", "Minimal Elegante", "Notturno Blu"]
+        )
         self.cmb_style.currentTextChanged.connect(self._on_settings_edited)
         tset_form.addRow("Stile Testo TV:", self.cmb_style)
+
+        self.cmb_font_family = QComboBox()
+        self.cmb_font_family.addItems(
+            ["Georgia", "Palatino Linotype", "Times New Roman", "Segoe UI", "Calibri", "Arial", "Garamond"]
+        )
+        self.cmb_font_family.currentTextChanged.connect(self._on_settings_edited)
+        tset_form.addRow("Carattere (Font):", self.cmb_font_family)
+
+        self.cmb_font_variant = QComboBox()
+        self.cmb_font_variant.addItems(["Normale", "Grassetto", "Corsivo", "Grassetto Corsivo"])
+        self.cmb_font_variant.currentTextChanged.connect(self._on_settings_edited)
+        tset_form.addRow("Stile Carattere:", self.cmb_font_variant)
 
         self.spin_font = QSpinBox()
         self.spin_font.setRange(24, 68)
@@ -406,16 +505,16 @@ class MainWindow(QMainWindow):
         self.chk_ducking.toggled.connect(self._on_settings_edited)
         tset_form.addRow("", self.chk_ducking)
 
-        right_tabs.addTab(tab_set, "Voce & Stile TV")
+        self.right_tabs.addTab(tab_set, "Voce & Stile TV")
 
         top_splitter.addWidget(left_panel)
         top_splitter.addWidget(center_panel)
-        top_splitter.addWidget(right_tabs)
+        top_splitter.addWidget(self.right_tabs)
         top_splitter.setSizes([280, 700, 400])
 
         # BOTTOM: Multi-track Timeline
-        bottom_box = QGroupBox("Timeline VideoLibro (Capitoli • Testo • Media • Audio)")
-        bot_lay = QVBoxLayout(bottom_box)
+        self.bottom_box = QGroupBox("Timeline VideoLibro (Capitoli • Testo • Media • Audio)")
+        bot_lay = QVBoxLayout(self.bottom_box)
         tl_tools = QHBoxLayout()
         self.lbl_total_dur = QLabel("Durata Totale: 00:00")
         b_zin = QPushButton("🔍 +")
@@ -436,7 +535,7 @@ class MainWindow(QMainWindow):
         bot_lay.addWidget(scroll)
 
         main_splitter.addWidget(top_splitter)
-        main_splitter.addWidget(bottom_box)
+        main_splitter.addWidget(self.bottom_box)
         main_splitter.setSizes([560, 260])
 
         root_layout.addWidget(main_splitter, 1)
@@ -480,6 +579,9 @@ class MainWindow(QMainWindow):
             self.cmb_voice.setCurrentIndex(idx)
         self.cmb_tts_engine.setCurrentText(s.tts_engine)
         self.cmb_style.setCurrentText(s.text_style)
+        self.cmb_quick_style.setCurrentText(s.text_style)
+        self.cmb_font_family.setCurrentText(s.font_family)
+        self.cmb_font_variant.setCurrentText(s.font_variant)
         self.spin_font.setValue(s.font_size)
         self.cmb_res.setCurrentText(s.resolution)
         self.chk_ducking.setChecked(s.auto_ducking)
@@ -588,6 +690,11 @@ class MainWindow(QMainWindow):
         ch.bg_audio_volume = vol_pct / 100.0
         self._refresh_timeline_and_preview()
 
+    def _on_quick_style_changed(self, style_text: str) -> None:
+        if self._updating_ui:
+            return
+        self.cmb_style.setCurrentText(style_text)
+
     def _on_settings_edited(self) -> None:
         if self._updating_ui:
             return
@@ -597,6 +704,12 @@ class MainWindow(QMainWindow):
         s.tts_voice = self.cmb_voice.currentData() or "it-IT-DiegoNeural"
         s.tts_engine = self.cmb_tts_engine.currentText()  # type: ignore[assignment]
         s.text_style = self.cmb_style.currentText()  # type: ignore[assignment]
+        if self.cmb_quick_style.currentText() != s.text_style:
+            self._updating_ui = True
+            self.cmb_quick_style.setCurrentText(s.text_style)
+            self._updating_ui = False
+        s.font_family = self.cmb_font_family.currentText()
+        s.font_variant = self.cmb_font_variant.currentText()
         s.font_size = self.spin_font.value()
         s.resolution = self.cmb_res.currentText()
         s.auto_ducking = self.chk_ducking.isChecked()
@@ -629,6 +742,11 @@ class MainWindow(QMainWindow):
         )
         auto = reply == QMessageBox.StandardButton.Yes
         title, chapters = import_manuscript_file(path, auto_detect_chapters=auto)
+        default_bg = self._resolve_builtin_bg("biblioteca_antica.jpg")
+        if default_bg:
+            for ch in chapters:
+                ch.default_media_path = default_bg
+                ch.default_media_type = "image"
         self.project = VideoBookProject(title=title, source_file=path, chapters=chapters)
         self._sel_chapter = 0
         self._sel_scene = 0 if chapters and chapters[0].scenes else None
@@ -779,14 +897,29 @@ class MainWindow(QMainWindow):
 
         self.btn_export.setEnabled(False)
         self.progress_bar.setValue(0)
-        worker = ExportWorker(self.project, out_path)
+        dlg = ExportProgressDialog(self, lang=self._lang, total_duration_sec=self.project.total_duration())
+        self._export_dialog = dlg
+
+        worker = ExportWorker(self.project, out_path, dlg.cancel_event)
+        worker.progress.connect(dlg.update_progress)
         worker.progress.connect(lambda p, m: (self.progress_bar.setValue(p), self.lbl_status.setText(m)))
+        worker.size_updated.connect(dlg.update_size)
         worker.finished_ok.connect(self._on_export_done)
+        worker.cancelled.connect(self._on_export_cancelled)
         worker.failed.connect(self._on_export_failed)
         self._worker = worker
         worker.start()
+        dlg.show()
+
+    def _close_export_dialog(self) -> None:
+        dlg = getattr(self, "_export_dialog", None)
+        if dlg is not None:
+            dlg._last_pct = 100
+            dlg.close()
+            self._export_dialog = None
 
     def _on_export_done(self, out_path: str) -> None:
+        self._close_export_dialog()
         self.btn_export.setEnabled(True)
         self.progress_bar.setValue(100)
         self.lbl_status.setText(f"Esportazione completata: {out_path}")
@@ -800,7 +933,223 @@ class MainWindow(QMainWindow):
         if ans == QMessageBox.StandardButton.Yes:
             os.startfile(str(Path(out_path).parent))
 
+    def _on_export_cancelled(self) -> None:
+        self._close_export_dialog()
+        self.btn_export.setEnabled(True)
+        self.progress_bar.setValue(0)
+        self.lbl_status.setText("Esportazione annullata.")
+
     def _on_export_failed(self, err: str) -> None:
+        self._close_export_dialog()
         self.btn_export.setEnabled(True)
         self.lbl_status.setText("Errore durante l'esportazione.")
         QMessageBox.critical(self, "Errore Esportazione MP4", err)
+
+    # ---------- Built-in Backgrounds ----------
+
+    def _resolve_builtin_bg(self, filename: str) -> str:
+        bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+        p = bundle_dir / "assets" / "backgrounds" / filename
+        if not p.exists():
+            p = self.workspace_dir / "assets" / "backgrounds" / filename
+        return str(p) if p.exists() else ""
+
+    def apply_preset_bg_to_chapter(self) -> None:
+        if self._updating_ui or not self.project.chapters:
+            return
+        fname = self.cmb_preset_bg.currentData()
+        if not fname:
+            return
+        bg_path = self._resolve_builtin_bg(str(fname))
+        if not bg_path:
+            return
+        ch = self.project.chapters[self._sel_chapter]
+        ch.default_media_path = bg_path
+        ch.default_media_type = "image"
+        self._populate_inspector()
+        self._refresh_timeline_and_preview()
+
+    def apply_chapter_bg_to_whole_book(self) -> None:
+        if not self.project.chapters:
+            return
+        cur = self.project.chapters[self._sel_chapter]
+        media_path = cur.default_media_path
+        media_type = cur.default_media_type
+        if not media_path:
+            fname = self.cmb_preset_bg.currentData()
+            if fname:
+                media_path = self._resolve_builtin_bg(str(fname))
+                media_type = "image"
+        if not media_path:
+            return
+        for ch in self.project.chapters:
+            ch.default_media_path = media_path
+            ch.default_media_type = media_type
+            for sc in ch.scenes:
+                sc.use_chapter_media = True
+        self._populate_inspector()
+        self._refresh_timeline_and_preview()
+        self.lbl_status.setText(f"Sfondo applicato a tutti i {len(self.project.chapters)} capitoli del libro.")
+
+    # ---------- Help, Media Propagation & Full Live Test Preview ----------
+
+    def show_help_dialog(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr(self._lang, "help_title"))
+        dlg.resize(620, 520)
+        lay = QVBoxLayout(dlg)
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(tr(self._lang, "help_html"))
+        lay.addWidget(browser)
+        btn_ok = QPushButton(tr(self._lang, "help_close"))
+        btn_ok.clicked.connect(dlg.accept)
+        lay.addWidget(btn_ok, alignment=Qt.AlignmentFlag.AlignRight)
+        dlg.exec()
+
+    def _on_language_changed(self) -> None:
+        lang = self.cmb_lang.currentData() or "it"
+        self._lang = str(lang)
+        self._settings_store.setValue("ui_language", self._lang)
+        self._retranslate_ui()
+
+    def _retranslate_ui(self) -> None:
+        L = self._lang
+        self.setWindowTitle(tr(L, "window_title"))
+        self.btn_import.setText(tr(L, "tb_import"))
+        self.btn_demo.setText(tr(L, "tb_demo"))
+        self.btn_open.setText(tr(L, "tb_open"))
+        self.btn_save.setText(tr(L, "tb_save"))
+        self.btn_tts_all.setText(tr(L, "tb_tts_all"))
+        self.btn_export.setText(tr(L, "tb_export"))
+        self.btn_help.setText(tr(L, "tb_help"))
+        self.lbl_left_hdr.setText(tr(L, "left_header"))
+        self.b_add_ch.setText(tr(L, "btn_add_ch"))
+        self.b_add_sc.setText(tr(L, "btn_add_sc"))
+        self.b_del.setText(tr(L, "btn_del"))
+        self.btn_test_play.setText(tr(L, "btn_test_play"))
+        self.btn_test_stop.setText(tr(L, "btn_test_stop"))
+        self.btn_listen.setText(tr(L, "btn_listen"))
+        self.lbl_scene_text.setText(tr(L, "lbl_scene_text"))
+        self.btn_pick_sc_media.setText(tr(L, "btn_browse"))
+        self.chk_use_ch_media.setText(tr(L, "chk_use_ch_media"))
+        self.btn_extend_media.setText(tr(L, "btn_extend_media"))
+        self.btn_extend_media.setToolTip(tr(L, "tip_extend_media"))
+        self.chk_title_card.setText(tr(L, "chk_title_card"))
+        self.btn_apply_bg_all.setText(tr(L, "btn_apply_bg_all"))
+        self.chk_ducking.setText(tr(L, "chk_ducking"))
+        self.right_tabs.setTabText(0, tr(L, "tab_scene"))
+        self.right_tabs.setTabText(1, tr(L, "tab_chapter"))
+        self.right_tabs.setTabText(2, tr(L, "tab_settings"))
+        self.bottom_box.setTitle(tr(L, "tl_group"))
+        self.timeline.set_language(L)
+        self._populate_inspector()
+        self._refresh_timeline_and_preview()
+
+    def extend_media_to_next_scenes(self) -> None:
+        if self._sel_scene is None or not self.project.chapters:
+            return
+        ch = self.project.chapters[self._sel_chapter]
+        src = ch.scenes[self._sel_scene]
+        media_path = ch.default_media_path if src.use_chapter_media else src.media_path
+        media_type = ch.default_media_type if src.use_chapter_media else src.media_type
+        if not media_path:
+            QMessageBox.information(
+                self,
+                "Nessun media",
+                "Seleziona prima un'immagine o un video per questa scena.",
+            )
+            return
+        count = 0
+        for sc in ch.scenes[self._sel_scene :]:
+            sc.media_path = media_path
+            sc.media_type = media_type
+            sc.use_chapter_media = False
+            count += 1
+        self._populate_inspector()
+        self._refresh_timeline_and_preview()
+        self.lbl_status.setText(f"Media esteso a {count} scene nel capitolo '{ch.title}'.")
+
+    def start_full_preview(self) -> None:
+        entries = self.project.compute_timeline()
+        if not entries:
+            return
+        self.stop_full_preview()
+        self._test_entries = entries
+        self._test_index = 0
+        self._is_testing = True
+        self.btn_test_play.setEnabled(False)
+        self.btn_test_stop.setEnabled(True)
+        self._play_test_entry(0)
+
+    def stop_full_preview(self) -> None:
+        self._is_testing = False
+        self._test_timer.stop()
+        self._player.stop()
+        self._bgm_player.stop()
+        self.btn_test_play.setEnabled(True)
+        self.btn_test_stop.setEnabled(False)
+        self.lbl_status.setText("Anteprima completa fermata.")
+
+    def _advance_full_preview(self) -> None:
+        if not self._is_testing:
+            return
+        next_idx = self._test_index + 1
+        if next_idx >= len(self._test_entries):
+            self.stop_full_preview()
+            self.lbl_status.setText("Anteprima completa terminata.")
+            return
+        self._play_test_entry(next_idx)
+
+    def _play_test_entry(self, idx: int) -> None:
+        if not self._is_testing or idx >= len(self._test_entries):
+            return
+        self._test_index = idx
+        entry = self._test_entries[idx]
+        self._sel_chapter = entry.chapter_index
+        self._sel_scene = entry.scene_index
+        self._populate_inspector()
+        self._refresh_timeline_and_preview()
+
+        # Background music with live auto-ducking
+        if entry.bg_audio_path and Path(entry.bg_audio_path).exists():
+            vol = entry.bg_audio_volume
+            if entry.kind == "scene" and self.project.settings.auto_ducking:
+                vol *= self.project.settings.ducking_factor
+            self._bgm_out.setVolume(max(0.0, min(1.0, vol)))
+            bgm_url = QUrl.fromLocalFile(entry.bg_audio_path)
+            if self._bgm_player.source() != bgm_url:
+                self._bgm_player.setSource(bgm_url)
+                self._bgm_player.setLoops(QMediaPlayer.Loops.Infinite)
+            if self._bgm_player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+                self._bgm_player.play()
+        else:
+            self._bgm_player.stop()
+
+        dur_sec = entry.duration_sec
+        if entry.kind == "scene":
+            sc = self.project.chapters[entry.chapter_index].scenes[entry.scene_index or 0]
+            if not sc.tts_audio_path or not Path(sc.tts_audio_path).exists():
+                ap, dur, timings = synthesize_scene_tts(
+                    sc.text,
+                    self.tts_cache_dir,
+                    sc.id,
+                    voice=self.project.settings.tts_voice,
+                    rate=self.project.settings.tts_rate,
+                    engine=self.project.settings.tts_engine,
+                )
+                sc.tts_audio_path = ap
+                sc.tts_duration_sec = dur
+                sc.word_timings = timings
+                dur_sec = sc.effective_duration
+                self._refresh_timeline_and_preview()
+
+            if sc.tts_audio_path and Path(sc.tts_audio_path).exists():
+                self._audio_out.setVolume(0.95)
+                self._player.setSource(QUrl.fromLocalFile(sc.tts_audio_path))
+                self._player.play()
+        else:
+            self._player.stop()
+
+        self.lbl_status.setText(f"▶ Test Live ({idx + 1}/{len(self._test_entries)}): {entry.label}")
+        self._test_timer.start(max(1200, int(dur_sec * 1000)))
