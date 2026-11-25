@@ -420,19 +420,30 @@ def render_preview_frame(
                 resized = src_rgba.resize((nw, nh), Image.Resampling.LANCZOS)
                 progress = max(0.0, min(1.0, progress))
                 mode = "zoom_in"
+                image_zoom, image_x, image_y = 1.0, 0.0, 0.0
                 if entry.kind == "scene":
-                    mode = project.chapters[entry.chapter_index].scenes[entry.scene_index or 0].ken_burns
-                zoom = 1.0 + 0.14 * progress if mode == "zoom_in" else 1.14 - 0.14 * progress if mode == "zoom_out" else 1.12 if mode in {"pan_left", "pan_right"} else 1.0
+                    scene = project.chapters[entry.chapter_index].scenes[entry.scene_index or 0]
+                    mode = scene.ken_burns
+                    image_zoom, image_x, image_y = scene.image_zoom, scene.image_x, scene.image_y
+                # The manual framing defines the opening shot; Ken Burns motion is
+                # applied from that same zoom/position as time advances.
+                if mode == "zoom_in":
+                    motion_zoom, motion_x = 1.0 + 0.14 * progress, 0.0
+                elif mode == "zoom_out":
+                    motion_zoom, motion_x = 1.14 - 0.14 * progress, 0.0
+                elif mode == "pan_left":
+                    motion_zoom, motion_x = 1.12, -progress
+                elif mode == "pan_right":
+                    motion_zoom, motion_x = 1.12, progress
+                else:
+                    motion_zoom, motion_x = 1.0, 0.0
+                zoom = motion_zoom * image_zoom
                 zw, zh = int(nw * zoom), int(nh * zoom)
                 resized = resized.resize((zw, zh), Image.Resampling.LANCZOS)
                 max_left, max_top = max(0, zw - w), max(0, zh - h)
-                if mode == "pan_left":
-                    left = int(max_left * (1.0 - progress))
-                elif mode == "pan_right":
-                    left = int(max_left * progress)
-                else:
-                    left = max_left // 2
-                top = max_top // 2
+                base_left = max_left / 2 - motion_x * max_left / 2
+                left = max(0, min(max_left, int(base_left - w * image_x / 2)))
+                top = max(0, min(max_top, int(max_top / 2 - h * image_y / 2)))
                 canvas = resized.crop((left, top, left + w, top + h))
         except Exception:
             pass
@@ -456,7 +467,8 @@ def render_preview_frame(
     return combined.convert("RGB")
 
 
-def _zoompan_filter(mode: KenBurnsMode, width: int, height: int, fps: int, frames: int) -> str:
+def _zoompan_filter(mode: KenBurnsMode, width: int, height: int, fps: int, frames: int,
+                    image_zoom: float = 1.0, image_x: float = 0.0, image_y: float = 0.0) -> str:
     frames = max(2, frames)
     # Pre-scale high enough for smooth subpixel Ken Burns motion
     pre_w = int(width * 1.25)
@@ -464,15 +476,24 @@ def _zoompan_filter(mode: KenBurnsMode, width: int, height: int, fps: int, frame
     base = f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=increase,crop={pre_w}:{pre_h},setsar=1"
 
     if mode == "zoom_out":
-        zp = f"zoompan=z='max(1.0,1.14-0.14*on/({frames}-1))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
+        motion_z = f"max(1.0,1.14-0.14*on/({frames}-1))"
+        motion_x = "0"
     elif mode == "pan_left":
-        zp = f"zoompan=z='1.12':x='(iw-iw/zoom)*(1-on/({frames}-1))':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
+        motion_z = "1.12"
+        motion_x = f"-(on/({frames}-1))"
     elif mode == "pan_right":
-        zp = f"zoompan=z='1.12':x='(iw-iw/zoom)*(on/({frames}-1))':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
+        motion_z = "1.12"
+        motion_x = f"(on/({frames}-1))"
     elif mode == "static":
-        zp = f"zoompan=z='1.0':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
+        motion_z = "1.0"
+        motion_x = "0"
     else:  # zoom_in
-        zp = f"zoompan=z='min(1.14,1.0+0.14*on/({frames}-1))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
+        motion_z = f"min(1.14,1.0+0.14*on/({frames}-1))"
+        motion_x = "0"
+    zp = (f"zoompan=z='min(3.0,({motion_z})*{image_zoom:.4f})':"
+          f"x='iw/2-(iw/zoom/2)+({motion_x})*(iw-iw/zoom)/2-({image_x:.4f})*(iw-iw/zoom)/2':"
+          f"y='ih/2-(ih/zoom/2)-({image_y:.4f})*(ih-ih/zoom)/2':"
+          f"d=1:s={width}x{height}:fps={fps}")
     return f"{base},{zp}"
 
 
@@ -633,7 +654,7 @@ def export_project_to_mp4(
                 v_base = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps}[bg]"
             elif has_media and entry.media_type == "image":
                 args += ["-loop", "1", "-t", f"{dur:.2f}", "-i", entry.media_path]
-                v_base = f"[0:v]{_zoompan_filter(kb_mode, w, h, fps, frames)}[bg]"
+                v_base = f"[0:v]{_zoompan_filter(kb_mode, w, h, fps, frames, sc.image_zoom, sc.image_x, sc.image_y)}[bg]"
             else:
                 bg_hex = project.settings.bg_fallback_color.lstrip("#")
                 args += ["-f", "lavfi", "-t", f"{dur:.2f}", "-i", f"color=c=0x{bg_hex}:s={w}x{h}:r={fps}"]

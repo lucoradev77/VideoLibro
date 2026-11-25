@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL.ImageQt import ImageQt
 from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QPixmap
+from PySide6.QtGui import QAction, QDesktopServices, QMouseEvent, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -64,6 +64,44 @@ BUILTIN_BACKGROUNDS = [
     ("Mare Stellato (Orizzonte)", "mare_stellato.jpg"),
     ("Foresta d'Oro (Bosco)", "foresta_oro.jpg"),
 ]
+
+
+class DraggablePreviewLabel(QLabel):
+    """Preview surface that reports image drag deltas in normalized coordinates."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.dragMoved = None
+        self._drag_position = None
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.pixmap() and not self.pixmap().isNull():
+            self._drag_position = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag_position is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            current = event.position().toPoint()
+            delta = current - self._drag_position
+            self._drag_position = current
+            pix = self.pixmap()
+            if pix and not pix.isNull() and self.dragMoved:
+                self.dragMoved(delta.x() / pix.width(), delta.y() / pix.height())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_position is not None:
+            self._drag_position = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class ExtendMediaDialog(QDialog):
@@ -297,6 +335,10 @@ class MainWindow(QMainWindow):
     def _apply_dark_theme(self) -> None:
         self.setStyleSheet(
             """
+            QCheckBox { color: #E8ECF4; spacing: 8px; }
+            QCheckBox::indicator { width: 18px; height: 18px; }
+            QCheckBox::indicator:unchecked { background-color: #252C3D; border: 1px solid #8994AA; border-radius: 3px; }
+            QCheckBox::indicator:checked { background-color: #C9943B; border: 1px solid #E5B460; border-radius: 3px; }
             QMainWindow, QWidget {
                 background-color: #151922;
                 color: #E8ECF4;
@@ -702,7 +744,8 @@ class MainWindow(QMainWindow):
         hdr_row.addWidget(self.chk_karaoke)
         center_lay.addLayout(hdr_row)
 
-        self.preview_label = QLabel()
+        self.preview_label = DraggablePreviewLabel()
+        self.preview_label.dragMoved = self._on_preview_image_dragged
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumSize(420, 236)
         self.preview_label.setStyleSheet("background-color: #0B0D13; border: 1px solid #2A3244; border-radius: 8px;")
@@ -749,6 +792,28 @@ class MainWindow(QMainWindow):
         self.cmb_ken_burns.currentTextChanged.connect(self._on_scene_edited)
         scene_form.addRow("Movimento (Ken Burns):", self.cmb_ken_burns)
 
+        self.spin_image_zoom = QDoubleSpinBox()
+        self.spin_image_zoom.setRange(1.0, 3.0)
+        self.spin_image_zoom.setSingleStep(0.05)
+        self.spin_image_zoom.setSuffix("×")
+        self.spin_image_zoom.valueChanged.connect(self._on_scene_edited)
+        self.lbl_image_zoom = QLabel()
+        scene_form.addRow(self.lbl_image_zoom, self.spin_image_zoom)
+        self.spin_image_x = QDoubleSpinBox()
+        self.spin_image_x.setRange(-1.0, 1.0)
+        self.spin_image_x.setSingleStep(0.05)
+        self.spin_image_x.setToolTip("Sposta l'immagine a sinistra o a destra")
+        self.spin_image_x.valueChanged.connect(self._on_scene_edited)
+        self.lbl_image_x = QLabel()
+        scene_form.addRow(self.lbl_image_x, self.spin_image_x)
+        self.spin_image_y = QDoubleSpinBox()
+        self.spin_image_y.setRange(-1.0, 1.0)
+        self.spin_image_y.setSingleStep(0.05)
+        self.spin_image_y.setToolTip("Sposta l'immagine in alto o in basso")
+        self.spin_image_y.valueChanged.connect(self._on_scene_edited)
+        self.lbl_image_y = QLabel()
+        scene_form.addRow(self.lbl_image_y, self.spin_image_y)
+
         self.chk_pause_override = QCheckBox("Pausa personalizzata per questa scena")
         self.chk_pause_override.toggled.connect(self._on_scene_edited)
         scene_form.addRow("", self.chk_pause_override)
@@ -788,10 +853,10 @@ class MainWindow(QMainWindow):
         self.cmb_chapter_library = QComboBox()
         self.cmb_chapter_library.currentIndexChanged.connect(self._on_chapter_library_selected)
         tc_form.addRow("Dalla Libreria Media:", self.cmb_chapter_library)
-        btn_ch_media = QPushButton("Immagine/Video...")
-        btn_ch_media.clicked.connect(self.pick_chapter_media)
+        self.btn_ch_media = QPushButton("Immagine/Video...")
+        self.btn_ch_media.clicked.connect(self.pick_chapter_media)
         ch_m_row.addWidget(self.edt_ch_media)
-        ch_m_row.addWidget(btn_ch_media)
+        ch_m_row.addWidget(self.btn_ch_media)
         tc_form.addRow("Sfondo Capitolo:", ch_m_row)
 
         preset_row = QHBoxLayout()
@@ -1029,6 +1094,9 @@ class MainWindow(QMainWindow):
             self._select_library_path(self.cmb_scene_library, sc.media_path)
             self.chk_use_ch_media.setChecked(sc.use_chapter_media)
             self.cmb_ken_burns.setCurrentText(sc.ken_burns)
+            self.spin_image_zoom.setValue(sc.image_zoom)
+            self.spin_image_x.setValue(sc.image_x)
+            self.spin_image_y.setValue(sc.image_y)
             self.spin_pause.setValue(sc.pause_after_sec)
             self.chk_pause_override.setChecked(sc.pause_override)
             self.spin_pause.setEnabled(sc.pause_override)
@@ -1038,6 +1106,9 @@ class MainWindow(QMainWindow):
             self.txt_scene.setPlainText("")
             self.lbl_scene_media.clear()
             self._select_library_path(self.cmb_scene_library, "")
+            self.spin_image_zoom.setValue(1.0)
+            self.spin_image_x.setValue(0.0)
+            self.spin_image_y.setValue(0.0)
             self.lbl_preview_info.setText(f"📺 Anteprima TV 16:9 — Copertina: {ch.title}")
         self._updating_ui = False
 
@@ -1154,9 +1225,36 @@ class MainWindow(QMainWindow):
             sc.tts_duration_sec = 0.0
         sc.use_chapter_media = self.chk_use_ch_media.isChecked()
         sc.ken_burns = self.cmb_ken_burns.currentText()  # type: ignore[assignment]
+        sc.image_zoom = self.spin_image_zoom.value()
+        sc.image_x = self.spin_image_x.value()
+        sc.image_y = self.spin_image_y.value()
         sc.pause_after_sec = self.spin_pause.value()
         sc.pause_override = self.chk_pause_override.isChecked()
         self.spin_pause.setEnabled(sc.pause_override)
+        self._refresh_timeline_and_preview()
+
+    def _on_preview_image_dragged(self, dx: float, dy: float) -> None:
+        if self._updating_ui or self._sel_scene is None or not self.project.chapters:
+            return
+        scene = self.project.chapters[self._sel_chapter].scenes[self._sel_scene]
+        if scene.use_chapter_media:
+            chapter = self.project.chapters[self._sel_chapter]
+            scene.media_path = chapter.default_media_path
+            scene.media_type = chapter.default_media_type
+            scene.use_chapter_media = False
+            self._updating_ui = True
+            self.chk_use_ch_media.setChecked(False)
+            self.lbl_scene_media.setText(scene.media_path)
+            self._updating_ui = False
+        # Dragging the picture right/down moves its crop window left/up.
+        scene.image_x = max(-1.0, min(1.0, scene.image_x - dx * 2.0))
+        scene.image_y = max(-1.0, min(1.0, scene.image_y - dy * 2.0))
+        self.spin_image_x.blockSignals(True)
+        self.spin_image_y.blockSignals(True)
+        self.spin_image_x.setValue(scene.image_x)
+        self.spin_image_y.setValue(scene.image_y)
+        self.spin_image_x.blockSignals(False)
+        self.spin_image_y.blockSignals(False)
         self._refresh_timeline_and_preview()
 
     def _on_global_pause_edited(self, value: float) -> None:
@@ -1821,8 +1919,12 @@ class MainWindow(QMainWindow):
         _style_tip = "Stile visivo TV" if L == "it" else "TV Visual Style"
         self.cmb_quick_style.setToolTip(_style_tip)
         self.lbl_scene_text.setText(tr(L, "lbl_scene_text"))
+        self.lbl_image_zoom.setText(tr(L, "lbl_image_zoom"))
+        self.lbl_image_x.setText(tr(L, "lbl_image_x"))
+        self.lbl_image_y.setText(tr(L, "lbl_image_y"))
         self.btn_pick_sc_media.setText(tr(L, "btn_browse"))
         self.chk_use_ch_media.setText(tr(L, "chk_use_ch_media"))
+        self.btn_ch_media.setText(tr(L, "btn_ch_media"))
         self.btn_extend_media.setText(tr(L, "btn_extend_media"))
         self.btn_extend_media.setToolTip(tr(L, "tip_extend_media"))
         self.chk_title_card.setText(tr(L, "chk_title_card"))

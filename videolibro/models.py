@@ -33,6 +33,9 @@ class SceneBlock:
     media_path: str = ""
     media_type: MediaType = "none"
     ken_burns: KenBurnsMode = "zoom_in"
+    image_zoom: float = 1.0
+    image_x: float = 0.0
+    image_y: float = 0.0
     duration_sec: float = 5.0
     pause_after_sec: float = 0.8
     pause_override: bool = False
