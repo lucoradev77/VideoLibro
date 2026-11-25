@@ -17,6 +17,7 @@ uv run pyinstaller `
     --collect-all edge_tts `
     --hidden-import pyttsx3.drivers `
     --hidden-import pyttsx3.drivers.sapi5 `
+    --runtime-hook rthook_windows_dll_path.py `
     main.py
 
 Write-Host "Build completata! File pronto in: dist\VideoLibroStudio.exe" -ForegroundColor Green
