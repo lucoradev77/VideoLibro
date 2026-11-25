@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 
 from PIL.ImageQt import ImageQt
-from PySide6.QtCore import QSettings, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFileDialog,
+    QInputDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -206,6 +207,7 @@ class MainWindow(QMainWindow):
         self._lang: str = str(self._settings_store.value("ui_language", "it"))
         self._sel_chapter: int = 0
         self._sel_scene: int | None = None
+        self._multi_select_mode = False
         self._updating_ui: bool = False
         self._worker: QThread | None = None
 
@@ -261,6 +263,13 @@ class MainWindow(QMainWindow):
                 spacing: 8px;
                 padding: 6px;
             }
+            QLabel#QuickStyleLabel, QComboBox#QuickStyleCombo {
+                background-color: #252C3D;
+                border: 1px solid #353F57;
+                border-radius: 6px;
+                padding: 6px 10px;
+                color: #E8ECF4;
+            }
             QPushButton {
                 background-color: #252C3D;
                 border: 1px solid #353F57;
@@ -283,6 +292,18 @@ class MainWindow(QMainWindow):
                 padding: 4px 6px;
                 color: #E8ECF4;
             }
+            QTreeWidget::indicator {
+                width: 14px;
+                height: 14px;
+                background-color: #FFFFFF;
+                border: 1px solid #AEB8CC;
+                border-radius: 3px;
+            }
+            QTreeWidget::indicator:checked {
+                background-color: #E0B46A;
+                border: 1px solid #D83B3B;
+            }
+            QTreeWidget::indicator:checked:hover { background-color: #F0C875; }
             QGroupBox {
                 border: 1px solid #2A3244;
                 border-radius: 6px;
@@ -434,8 +455,11 @@ class MainWindow(QMainWindow):
             self.cmb_lang.setCurrentIndex(l_idx)
         self.cmb_lang.currentIndexChanged.connect(self._on_language_changed)
         tb.addWidget(self.cmb_lang)
-        tb.addWidget(QLabel("🎨 Stile TV"))
+        self.lbl_quick_style = QLabel("🎨 Stile TV")
+        self.lbl_quick_style.setObjectName("QuickStyleLabel")
+        tb.addWidget(self.lbl_quick_style)
         self.cmb_quick_style = QComboBox()
+        self.cmb_quick_style.setObjectName("QuickStyleCombo")
         self.cmb_quick_style.addItems(
             ["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica", "Minimal Elegante", "Notturno Blu"]
         )
@@ -443,6 +467,29 @@ class MainWindow(QMainWindow):
         self.cmb_quick_style.setToolTip("Stile visivo sulla TV")
         self.cmb_quick_style.currentTextChanged.connect(self._on_quick_style_changed)
         tb.addWidget(self.cmb_quick_style)
+        self.btn_fullscreen = QPushButton()
+        self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
+        tb.addWidget(self.btn_fullscreen)
+
+    def toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.showMaximized()
+        else:
+            self.showFullScreen()
+        self._update_fullscreen_button()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and hasattr(self, "btn_fullscreen"):
+            self._update_fullscreen_button()
+
+    def _update_fullscreen_button(self) -> None:
+        if hasattr(self, "btn_fullscreen"):
+            self.btn_fullscreen.setText(
+                ("⤢ Schermo normale" if self.isFullScreen() else "⛶ Schermo intero")
+                if self._lang == "it"
+                else ("⤢ Normal screen" if self.isFullScreen() else "⛶ Full screen")
+            )
 
 
     def _build_layout(self) -> None:
@@ -467,14 +514,30 @@ class MainWindow(QMainWindow):
         left_lay.addWidget(self.tree)
 
         ch_btns = QHBoxLayout()
+        ch_btns.setContentsMargins(0, 5, 0, 0)
         self.b_add_ch = QPushButton("+ Capitolo")
         self.b_add_ch.clicked.connect(self.add_chapter)
         self.b_add_sc = QPushButton("+ Scena")
         self.b_add_sc.clicked.connect(self.add_scene)
         self.b_del = QPushButton("Elimina")
         self.b_del.clicked.connect(self.delete_selected)
+        self.b_up = QPushButton("↑")
+        self.b_up.setToolTip("Sposta in alto")
+        self.b_up.clicked.connect(self.move_selected_up)
+        self.b_down = QPushButton("↓")
+        self.b_down.setToolTip("Sposta in basso")
+        self.b_down.clicked.connect(self.move_selected_down)
+        self.b_merge = QPushButton("Unisci scene")
+        self.b_merge.clicked.connect(self.merge_selected_scene)
+        self.b_multi = QPushButton("Selezione multipla")
+        self.b_multi.setCheckable(True)
+        self.b_multi.toggled.connect(self.set_multi_select_mode)
+        ch_btns.addWidget(self.b_up)
+        ch_btns.addWidget(self.b_down)
         ch_btns.addWidget(self.b_add_ch)
         ch_btns.addWidget(self.b_add_sc)
+        ch_btns.addWidget(self.b_merge)
+        ch_btns.addWidget(self.b_multi)
         ch_btns.addWidget(self.b_del)
         left_lay.addLayout(ch_btns)
 
@@ -740,12 +803,18 @@ class MainWindow(QMainWindow):
         for c_idx, ch in enumerate(self.project.chapters):
             ch_item = QTreeWidgetItem([f"📖 {ch.title}"])
             ch_item.setData(0, Qt.ItemDataRole.UserRole, (c_idx, None))
+            if self._multi_select_mode:
+                ch_item.setFlags(ch_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                ch_item.setCheckState(0, Qt.CheckState.Unchecked)
             for s_idx, sc in enumerate(ch.scenes):
                 snippet = sc.text.strip().replace("\n", " ")
                 if len(snippet) > 32:
                     snippet = snippet[:29] + "..."
                 sc_item = QTreeWidgetItem([f"  🎬 {s_idx + 1}. {snippet}"])
                 sc_item.setData(0, Qt.ItemDataRole.UserRole, (c_idx, s_idx))
+                if self._multi_select_mode:
+                    sc_item.setFlags(sc_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    sc_item.setCheckState(0, Qt.CheckState.Unchecked)
                 ch_item.addChild(sc_item)
             self.tree.addTopLevelItem(ch_item)
             ch_item.setExpanded(True)
@@ -847,6 +916,89 @@ class MainWindow(QMainWindow):
             self._sel_chapter, self._sel_scene = data
             self._populate_inspector()
             self._refresh_timeline_and_preview()
+
+    def set_multi_select_mode(self, enabled: bool) -> None:
+        self._multi_select_mode = enabled
+        self.b_multi.setText(tr(self._lang, "btn_multi_done" if enabled else "btn_multi"))
+        self._refresh_all()
+
+    def _checked_tree_targets(self) -> tuple[set[int], dict[int, set[int]]]:
+        chapter_indices: set[int] = set()
+        scenes_by_chapter: dict[int, set[int]] = {}
+        for c_idx in range(self.tree.topLevelItemCount()):
+            chapter_item = self.tree.topLevelItem(c_idx)
+            if chapter_item.checkState(0) == Qt.CheckState.Checked:
+                chapter_indices.add(c_idx)
+                continue
+            checked = {
+                s_idx for s_idx in range(chapter_item.childCount())
+                if chapter_item.child(s_idx).checkState(0) == Qt.CheckState.Checked
+            }
+            if checked:
+                scenes_by_chapter[c_idx] = checked
+        return chapter_indices, scenes_by_chapter
+
+    def _select_tree_item(self) -> None:
+        if not self.project.chapters or not (0 <= self._sel_chapter < len(self.project.chapters)):
+            return
+        chapter = self.tree.topLevelItem(self._sel_chapter)
+        item = chapter.child(self._sel_scene) if self._sel_scene is not None else chapter
+        if item is not None:
+            self.tree.setCurrentItem(item)
+
+    def _move_selected(self, delta: int) -> None:
+        if not self.project.chapters:
+            return
+        if self._sel_scene is None:
+            target = self._sel_chapter + delta
+            if not 0 <= target < len(self.project.chapters):
+                return
+            chapters = self.project.chapters
+            chapters[self._sel_chapter], chapters[target] = chapters[target], chapters[self._sel_chapter]
+            self._sel_chapter = target
+        else:
+            chapter = self.project.chapters[self._sel_chapter]
+            target = self._sel_scene + delta
+            if not 0 <= target < len(chapter.scenes):
+                return
+            chapter.scenes[self._sel_scene], chapter.scenes[target] = chapter.scenes[target], chapter.scenes[self._sel_scene]
+            self._sel_scene = target
+        self._refresh_all()
+        self._select_tree_item()
+
+    def move_selected_up(self) -> None:
+        self._move_selected(-1)
+
+    def move_selected_down(self) -> None:
+        self._move_selected(1)
+
+    def merge_selected_scene(self) -> None:
+        if self._sel_scene is None or not self.project.chapters:
+            return
+        chapter = self.project.chapters[self._sel_chapter]
+        if len(chapter.scenes) < 2:
+            return
+        choices = [f"{i + 1}. {scene.text.strip().replace(chr(10), ' ')[:70]}" for i, scene in enumerate(chapter.scenes)]
+        start, ok = QInputDialog.getItem(self, "Unisci scene", "Prima scena da unire:", choices, self._sel_scene, False)
+        if not ok:
+            return
+        start_idx = choices.index(start)
+        possible_ends = list(range(start_idx + 1, len(chapter.scenes)))
+        end_choices = [f"{i + 1}. {chapter.scenes[i].text.strip().replace(chr(10), ' ')[:70]}" for i in possible_ends]
+        end, ok = QInputDialog.getItem(self, "Unisci scene", "Unisci fino alla scena:", end_choices, 0, False)
+        if not ok:
+            return
+        end_idx = possible_ends[end_choices.index(end)]
+        selected_scenes = chapter.scenes[start_idx:end_idx + 1]
+        first = selected_scenes[0]
+        first.text = "\n\n".join(scene.text.strip() for scene in selected_scenes if scene.text.strip())
+        first.tts_audio_path = ""
+        first.tts_duration_sec = 0.0
+        first.word_timings = []
+        del chapter.scenes[start_idx + 1:end_idx + 1]
+        self._sel_scene = start_idx
+        self._refresh_all()
+        self._select_tree_item()
 
     def _on_timeline_selected(self, ch_idx: int, sc_idx: object) -> None:
         self._sel_chapter = ch_idx
@@ -1036,14 +1188,65 @@ class MainWindow(QMainWindow):
     def delete_selected(self) -> None:
         if not self.project.chapters:
             return
+        if self._multi_select_mode:
+            chapter_targets, scene_targets = self._checked_tree_targets()
+            count = len(chapter_targets) + sum(len(indices) for indices in scene_targets.values())
+            if not count:
+                return
+            answer = QMessageBox.question(
+                self, "Conferma eliminazione",
+                f"Eliminare {count} elemento/i selezionato/i?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            for c_idx, indices in sorted(scene_targets.items(), reverse=True):
+                if c_idx >= len(self.project.chapters) or c_idx in chapter_targets:
+                    continue
+                chapter = self.project.chapters[c_idx]
+                for s_idx in sorted(indices, reverse=True):
+                    if s_idx < len(chapter.scenes):
+                        del chapter.scenes[s_idx]
+            for c_idx in sorted(chapter_targets, reverse=True):
+                if c_idx < len(self.project.chapters):
+                    del self.project.chapters[c_idx]
+            if not self.project.chapters:
+                self._sel_chapter, self._sel_scene = 0, None
+            else:
+                self._sel_chapter = min(self._sel_chapter, len(self.project.chapters) - 1)
+                scenes = self.project.chapters[self._sel_chapter].scenes
+                self._sel_scene = min(self._sel_scene or 0, len(scenes) - 1) if scenes else None
+            self.b_multi.setChecked(False)
+            self.set_multi_select_mode(False)
+            self._refresh_all()
+            return
         ch = self.project.chapters[self._sel_chapter]
-        if self._sel_scene is not None and len(ch.scenes) > 1:
+        target_label = f"la scena {self._sel_scene + 1}" if self._sel_scene is not None else f"il capitolo '{ch.title}'"
+        answer = QMessageBox.question(
+            self, "Conferma eliminazione", f"Eliminare {target_label}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if self._sel_scene is not None:
             ch.scenes.pop(self._sel_scene)
-            self._sel_scene = max(0, self._sel_scene - 1)
-        elif len(self.project.chapters) > 1:
+            if ch.scenes:
+                self._sel_scene = min(self._sel_scene, len(ch.scenes) - 1)
+            elif len(self.project.chapters) > 1:
+                self.project.chapters.pop(self._sel_chapter)
+                self._sel_chapter = min(self._sel_chapter, len(self.project.chapters) - 1)
+                self._sel_scene = 0 if self.project.chapters[self._sel_chapter].scenes else None
+            else:
+                self._sel_scene = None
+        else:
             self.project.chapters.pop(self._sel_chapter)
-            self._sel_chapter = max(0, self._sel_chapter - 1)
-            self._sel_scene = 0 if self.project.chapters[self._sel_chapter].scenes else None
+            if self.project.chapters:
+                self._sel_chapter = min(self._sel_chapter, len(self.project.chapters) - 1)
+                self._sel_scene = 0 if self.project.chapters[self._sel_chapter].scenes else None
+            else:
+                self._sel_chapter, self._sel_scene = 0, None
         self._refresh_all()
 
     def pick_scene_media(self) -> None:
@@ -1381,10 +1584,17 @@ class MainWindow(QMainWindow):
         self.btn_tts_all.setText(tr(L, "tb_tts_all"))
         self.btn_export.setText(tr(L, "tb_export"))
         self.btn_help.setText(tr(L, "tb_help"))
+        self._update_fullscreen_button()
         self.lbl_left_hdr.setText(tr(L, "left_header"))
         self.b_add_ch.setText(tr(L, "btn_add_ch"))
         self.b_add_sc.setText(tr(L, "btn_add_sc"))
         self.b_del.setText(tr(L, "btn_del"))
+        self.b_up.setText(tr(L, "btn_up"))
+        self.b_up.setToolTip(tr(L, "tip_up"))
+        self.b_down.setText(tr(L, "btn_down"))
+        self.b_down.setToolTip(tr(L, "tip_down"))
+        self.b_merge.setText(tr(L, "btn_merge"))
+        self.b_multi.setText(tr(L, "btn_multi_done" if self._multi_select_mode else "btn_multi"))
         self.btn_test_play.setText(tr(L, "btn_test_play"))
         self.btn_test_pause.setText("⏸ Pausa" if L == "it" else "⏸ Pause")
         self.btn_test_stop.setText(tr(L, "btn_test_stop"))
