@@ -67,7 +67,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             <div style="font-family:'Segoe UI'; color:#E8ECF4; line-height:1.55;">
               <h2 style="color:#E0B46A; margin-bottom:4px;">🎬 VideoLibro Studio</h2>
               <p style="margin-top:0; color:#D8C39A;">
-                <b>Ideato da Luca Corallo</b> — Da una passione per i manoscritti, per trasformare le storie scritte in VideoLibri da leggere, ascoltare e guardare in TV come un film.
+                <b>Ideato da <a href="mailto:lucoradev@outlook.it" style="color:#E0B46A;">Luca Corallo</a></b> — Da una passione per i manoscritti, per trasformare le storie scritte in VideoLibri da leggere, ascoltare e guardare in TV come un film.
               </p>
               <hr style="border:1px solid #2A3244;" />
               <h3 style="color:#E0B46A;">Guida rapida d'uso</h3>
@@ -145,7 +145,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             <div style="font-family:'Segoe UI'; color:#E8ECF4; line-height:1.55;">
               <h2 style="color:#E0B46A; margin-bottom:4px;">🎬 VideoLibro Studio</h2>
               <p style="margin-top:0; color:#D8C39A;">
-                <b>Created by Luca Corallo</b> — Born from a passion for manuscripts, to turn written stories into VideoBooks you can read, listen to, and watch on TV like a movie.
+                <b>Created by <a href="mailto:lucoradev@outlook.it" style="color:#E0B46A;">Luca Corallo</a></b> — Born from a passion for manuscripts, to turn written stories into VideoBooks you can read, listen to, and watch on TV like a movie.
               </p>
               <hr style="border:1px solid #2A3244;" />
               <h3 style="color:#E0B46A;">Quick User Guide</h3>

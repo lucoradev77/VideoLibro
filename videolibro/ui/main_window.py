@@ -276,15 +276,7 @@ class MainWindow(QMainWindow):
         self.cmb_lang.currentIndexChanged.connect(self._on_language_changed)
         tb.addWidget(self.cmb_lang)
 
-        tb.addSeparator()
 
-        self.cmb_quick_style = QComboBox()
-        self.cmb_quick_style.addItems(
-            ["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica", "Minimal Elegante", "Notturno Blu"]
-        )
-        self.cmb_quick_style.setToolTip("Stile visivo sulla TV")
-        self.cmb_quick_style.currentTextChanged.connect(self._on_quick_style_changed)
-        tb.addWidget(self.cmb_quick_style)
 
     def _build_layout(self) -> None:
         central = QWidget()
@@ -327,6 +319,18 @@ class MainWindow(QMainWindow):
         hdr_row = QHBoxLayout()
         self.lbl_preview_info = QLabel("📺 Anteprima TV 16:9")
         self.lbl_preview_info.setStyleSheet("font-weight: bold; color: #E0B46A;")
+
+        # Style selector moved here (from toolbar) for quick access next to preview
+        self.lbl_style_sel = QLabel("🎨")
+        self.lbl_style_sel.setToolTip("Stile visivo")
+        self.cmb_quick_style = QComboBox()
+        self.cmb_quick_style.addItems(
+            ["Libro Cinematografico", "Sottotitoli Cinema", "Pagina Antica", "Minimal Elegante", "Notturno Blu"]
+        )
+        self.cmb_quick_style.setToolTip("Stile visivo sulla TV")
+        self.cmb_quick_style.setMinimumWidth(185)
+        self.cmb_quick_style.currentTextChanged.connect(self._on_quick_style_changed)
+
         self.btn_test_play = QPushButton("▶ Test Completo")
         self.btn_test_play.clicked.connect(self.start_full_preview)
         self.btn_test_stop = QPushButton("⏹ Stop")
@@ -334,8 +338,12 @@ class MainWindow(QMainWindow):
         self.btn_test_stop.clicked.connect(self.stop_full_preview)
         self.btn_listen = QPushButton("🔊 Ascolta Scena (TTS)")
         self.btn_listen.clicked.connect(self.preview_scene_tts)
+
         hdr_row.addWidget(self.lbl_preview_info)
         hdr_row.addStretch()
+        hdr_row.addWidget(self.lbl_style_sel)
+        hdr_row.addWidget(self.cmb_quick_style)
+        hdr_row.addSpacing(12)
         hdr_row.addWidget(self.btn_test_play)
         hdr_row.addWidget(self.btn_test_stop)
         hdr_row.addWidget(self.btn_listen)
@@ -1030,6 +1038,9 @@ class MainWindow(QMainWindow):
         self.btn_test_play.setText(tr(L, "btn_test_play"))
         self.btn_test_stop.setText(tr(L, "btn_test_stop"))
         self.btn_listen.setText(tr(L, "btn_listen"))
+        _style_tip = "Stile visivo TV" if L == "it" else "TV Visual Style"
+        self.lbl_style_sel.setToolTip(_style_tip)
+        self.cmb_quick_style.setToolTip(_style_tip)
         self.lbl_scene_text.setText(tr(L, "lbl_scene_text"))
         self.btn_pick_sc_media.setText(tr(L, "btn_browse"))
         self.chk_use_ch_media.setText(tr(L, "chk_use_ch_media"))

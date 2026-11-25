@@ -14,7 +14,7 @@
 
 ## 👋 Why VideoLibro Studio exists
 
-Hi, I'm **Luca Corallo**.
+Hi, I'm [**Luca Corallo**](mailto:lucoradev@outlook.it).
 
 For some years now I've been passionate about manuscripts. Today we have PDFs, EPUBs, and audiobooks. One day I asked myself: *when I watch a movie, it's really a written story brought to life... so why don't we invent **VideoBooks**?*
 
