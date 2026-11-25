@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -12,7 +13,8 @@ from pathlib import Path
 
 from PIL.ImageQt import ImageQt
 from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QPixmap
+from PySide6.QtGui import QAction, QDesktopServices, QPixmap
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
@@ -46,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..i18n import tr
+from .. import __version__
 from ..importer import import_manuscript_file, split_text_into_scenes
 from ..models import Chapter, SceneBlock, VideoBookProject
 from ..renderer import ExportCancelledError, export_project_to_mp4, render_preview_frame
@@ -210,6 +213,9 @@ class MainWindow(QMainWindow):
         self._multi_select_mode = False
         self._updating_ui: bool = False
         self._worker: QThread | None = None
+        self._latest_release_tag: str | None = None
+        self._update_manager = QNetworkAccessManager(self)
+        self._update_manager.finished.connect(self._on_update_check_finished)
 
         self._audio_out = QAudioOutput(self)
         self._player = QMediaPlayer(self)
@@ -243,6 +249,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.splitterMoved.connect(lambda _pos, _index: self._save_layout_settings())
         QTimer.singleShot(0, self._restore_layout_settings)
         QTimer.singleShot(0, self._connect_screen_signals)
+        QTimer.singleShot(5000, self.check_for_updates)
         self._retranslate_ui()
 
         # Load demo project on first launch so user sees something rich immediately
@@ -470,6 +477,61 @@ class MainWindow(QMainWindow):
         self.btn_fullscreen = QPushButton()
         self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
         tb.addWidget(self.btn_fullscreen)
+        self.btn_update = QPushButton()
+        self.btn_update.setObjectName("UpdateAvailableBtn")
+        self.btn_update.setVisible(False)
+        self.btn_update.clicked.connect(self.open_latest_release)
+        tb.addWidget(self.btn_update)
+
+    def check_for_updates(self) -> None:
+        request = QNetworkRequest(QUrl("https://api.github.com/repos/lucoradev77/VideoLibro/releases/latest"))
+        request.setRawHeader(b"Accept", b"application/vnd.github+json")
+        request.setRawHeader(b"User-Agent", b"VideoLibroStudio")
+        request.setTransferTimeout(10000)
+        self._update_manager.get(request)
+
+    def _on_update_check_finished(self, reply) -> None:
+        try:
+            if reply.error():
+                return
+            import json
+
+            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            latest_tag = str(payload.get("tag_name", ""))
+            latest_version = self._parse_version(latest_tag)
+            current_version = self._parse_version(__version__)
+            if latest_version is None or current_version is None:
+                return
+            # Previous public builds reported 1.0.0 internally despite using v0.1.x tags.
+            if __version__ == "1.0.0":
+                current_version = (0, 0, 0)
+            if latest_version > current_version:
+                self._latest_release_tag = latest_tag
+                self._update_update_button()
+        except (ValueError, TypeError, AttributeError):
+            pass
+        finally:
+            reply.deleteLater()
+
+    @staticmethod
+    def _parse_version(version: str) -> tuple[int, int, int] | None:
+        match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", version.strip())
+        return tuple(map(int, match.groups())) if match else None
+
+    def _update_update_button(self) -> None:
+        if not hasattr(self, "btn_update") or not self._latest_release_tag:
+            return
+        self.btn_update.setText(
+            tr(self._lang, "update_available", version=self._latest_release_tag)
+        )
+        self.btn_update.setToolTip(tr(self._lang, "update_tooltip"))
+        self.btn_update.setVisible(True)
+
+    def open_latest_release(self) -> None:
+        if self._latest_release_tag:
+            QDesktopServices.openUrl(
+                QUrl(f"https://github.com/lucoradev77/VideoLibro/releases/tag/{self._latest_release_tag}")
+            )
 
     def toggle_fullscreen(self) -> None:
         if self.isFullScreen():
@@ -1585,6 +1647,7 @@ class MainWindow(QMainWindow):
         self.btn_export.setText(tr(L, "tb_export"))
         self.btn_help.setText(tr(L, "tb_help"))
         self._update_fullscreen_button()
+        self._update_update_button()
         self.lbl_left_hdr.setText(tr(L, "left_header"))
         self.b_add_ch.setText(tr(L, "btn_add_ch"))
         self.b_add_sc.setText(tr(L, "btn_add_sc"))
