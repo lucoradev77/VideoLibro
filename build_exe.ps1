@@ -31,6 +31,7 @@ uv run pyinstaller `
     --collect-all edge_tts `
     --hidden-import pyttsx3.drivers `
     --hidden-import pyttsx3.drivers.sapi5 `
+    --additional-hooks-dir "hooks" `
     --runtime-hook rthook_windows_dll_path.py `
     main.py
 
