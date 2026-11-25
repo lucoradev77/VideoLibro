@@ -100,6 +100,13 @@
     .tv-card.parchment {
       background: rgba(244,234,212,0.92); border: 2px solid #a8844c; color: #2c2014;
     }
+    .tv-card.minimal {
+      background: linear-gradient(to top, rgba(8,10,16,0.75), transparent);
+      border-top: 2px solid rgba(224,180,106,0.8); border-radius: 0; color: #f8f6f0;
+    }
+    .tv-card.night {
+      background: rgba(10,20,40,0.88); border: 2px solid rgba(120,185,245,0.7); color: #e6f2ff;
+    }
     .style-tabs {
       display: flex; justify-content: center; gap: 10px; margin-top: 16px; flex-wrap: wrap;
     }
@@ -139,8 +146,8 @@
       </div>
       <div class="nav-links">
         <a href="#funzioni">Funzioni</a>
-        <a id="nav-releases" href="https://github.com" target="_blank" rel="noopener">Download</a>
-        <a id="nav-repo" href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+        <a id="nav-releases" href="https://github.com/lucoradev77/VideoLibro/releases" target="_blank" rel="noopener">Download</a>
+        <a id="nav-repo" href="https://github.com/lucoradev77/VideoLibro" target="_blank" rel="noopener">GitHub</a>
       </div>
     </nav>
 
@@ -151,10 +158,10 @@
         Importa un manoscritto Word (<code>.docx</code>) o testo, aggiungi immagini, video e musica di sottofondo sulla timeline e genera un <strong>VideoLibro MP4 Full HD</strong> con voce narrante neurale.
       </p>
       <div class="cta-row">
-        <a id="btn-download" class="btn-primary" href="https://github.com" target="_blank" rel="noopener">
+        <a id="btn-download" class="btn-primary" href="https://github.com/lucoradev77/VideoLibro/releases/latest/download/VideoLibroStudio-Windows-x64.exe" target="_blank" rel="noopener">
           ⬇ Scarica per Windows 11 (.exe)
         </a>
-        <a id="btn-github" class="btn-secondary" href="https://github.com" target="_blank" rel="noopener">
+        <a id="btn-github" class="btn-secondary" href="https://github.com/lucoradev77/VideoLibro" target="_blank" rel="noopener">
           Codice Sorgente su GitHub
         </a>
       </div>
@@ -174,6 +181,8 @@
         <button class="style-btn active" onclick="setTvStyle('cinema', this)">Libro Cinematografico</button>
         <button class="style-btn" onclick="setTvStyle('subs', this)">Sottotitoli Cinema</button>
         <button class="style-btn" onclick="setTvStyle('parchment', this)">Pagina Antica</button>
+        <button class="style-btn" onclick="setTvStyle('minimal', this)">Minimal Elegante</button>
+        <button class="style-btn" onclick="setTvStyle('night', this)">Notturno Blu</button>
       </div>
     </section>
 

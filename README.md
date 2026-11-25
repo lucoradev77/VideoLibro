@@ -1,6 +1,6 @@
 # 🎬 VideoLibro Studio
 
-**🌐 Lingua / Language:** **Italiano** · [English](README.en.md)
+**🌐 Lingua / Language:** **Italiano** · [English](README.en.md) · **🚀 Sito & Download:** [lucoradev77.github.io/VideoLibro](https://lucoradev77.github.io/VideoLibro/)
 
 > **Trasforma i tuoi manoscritti (`.docx`, `.txt`, `.md`) in VideoLibri cinematografici MP4.**
 > *Leggi, ascolta e guarda le tue storie direttamente sulla TV di casa.*
@@ -8,7 +8,7 @@
 [![Licenza: MIT](https://img.shields.io/badge/Licenza-MIT-E0B46A.svg)](LICENSE)
 [![Windows 11](https://img.shields.io/badge/Piattaforma-Windows%2011-0078D6.svg?logo=windows11)](#)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB.svg?logo=python)](#)
-[![Download EXE](https://img.shields.io/badge/Download-Windows%20.exe-success.svg)](../../releases/latest)
+[![Download EXE](https://img.shields.io/badge/Download-Windows%20.exe-success.svg)](https://github.com/lucoradev77/VideoLibro/releases/latest)
 
 ---
 
@@ -41,7 +41,7 @@ Se ti va di usarlo, migliorarlo o semplicemente curiosare nel codice, sei il ben
 
 ## 📥 Download rapido (Windows 11)
 
-Puoi scaricare l'eseguibile già compilato (`VideoLibroStudio-Windows-x64.exe`, nessuna installazione richiesta) dalla pagina [**Releases**](../../releases/latest) oppure dal sito web del progetto.
+Puoi scaricare l'eseguibile già compilato (`VideoLibroStudio-Windows-x64.exe`, nessuna installazione richiesta) dalla pagina [**Releases**](https://github.com/lucoradev77/VideoLibro/releases/latest) oppure dal [**sito web del progetto**](https://lucoradev77.github.io/VideoLibro/).
 
 ---
 
@@ -49,7 +49,7 @@ Puoi scaricare l'eseguibile già compilato (`VideoLibroStudio-Windows-x64.exe`, 
 
 ```powershell
 # Clona il repository
-git clone https://github.com/TUO_UTENTE/VideoLibro.git
+git clone https://github.com/lucoradev77/VideoLibro.git
 cd VideoLibro
 
 # Avvia con uv (installa automaticamente Python 3.12 e dipendenze)

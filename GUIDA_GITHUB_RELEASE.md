@@ -22,7 +22,7 @@ git init
 git add .
 git commit -m "Initial release: VideoLibro Studio"
 git branch -M main
-git remote add origin https://github.com/TUO_UTENTE/VideoLibro.git
+git remote add origin https://github.com/lucoradev77/VideoLibro.git
 git push -u origin main
 ```
 
@@ -61,7 +61,7 @@ Il sito vetrina è già pronto nella cartella [`docs/`](docs/index.html):
 3. Seleziona il branch **`main`** e la cartella **`/docs`**, poi clicca **Save**.
 4. Dopo qualche secondo, il sito sarà online all'indirizzo:
    ```
-   https://TUO_UTENTE.github.io/VideoLibro/
+   https://lucoradev77.github.io/VideoLibro/
    ```
 
 Il pulsante **"Scarica per Windows 11 (.exe)"** presente nella pagina rileva automaticamente il tuo username e il nome del repository e punta all'ultima versione pubblicata nelle **Releases**.
