@@ -17,7 +17,7 @@ TextStyleMode = Literal[
 ]
 MediaType = Literal["none", "image", "video"]
 KenBurnsMode = Literal["zoom_in", "zoom_out", "pan_left", "pan_right", "static"]
-TTSEngine = Literal["edge-tts", "offline"]
+TTSEngine = Literal["edge-tts", "kokoro", "offline"]
 
 
 def _new_id() -> str:

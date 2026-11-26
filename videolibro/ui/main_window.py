@@ -54,7 +54,14 @@ from ..importer import import_manuscript_file, split_text_into_scenes
 from ..models import Chapter, SceneBlock, VideoBookProject
 from ..renderer import ExportCancelledError, export_project_to_mp4, render_preview_frame
 from ..sample_generator import build_demo_project
-from ..tts_engine import ITALIAN_VOICES, synthesize_scene_tts
+from ..tts_engine import (
+    ITALIAN_VOICES,
+    default_models_dir,
+    download_kokoro_models,
+    kokoro_models_present,
+    synthesize_scene_tts,
+    voices_for_engine,
+)
 from .export_dialog import ExportOptionsDialog, ExportProgressDialog, TaskProgressDialog
 from .timeline_widget import TimelineWidget
 
@@ -234,6 +241,40 @@ class TTSBatchWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class KokoroDownloadWorker(QThread):
+    progress = Signal(int, str)
+    finished_ok = Signal(str)
+    cancelled = Signal()
+    failed = Signal(str)
+
+    def __init__(self, cancel_event: threading.Event | None = None) -> None:
+        super().__init__()
+        self.cancel_event = cancel_event or threading.Event()
+
+    def run(self) -> None:
+        try:
+            def _on_progress(filename: str, downloaded: int, total: int) -> None:
+                if total > 0:
+                    pct = int(100 * downloaded / total)
+                    mb_done = downloaded / (1024 * 1024)
+                    mb_tot = total / (1024 * 1024)
+                    self.progress.emit(pct, f"Scaricamento {filename}: {mb_done:.1f} / {mb_tot:.1f} MB")
+                else:
+                    mb_done = downloaded / (1024 * 1024)
+                    self.progress.emit(0, f"Scaricamento {filename}: {mb_done:.1f} MB")
+
+            models_dir = download_kokoro_models(
+                progress_cb=_on_progress,
+                cancel_event=self.cancel_event,
+            )
+            self.finished_ok.emit(str(models_dir))
+        except Exception as exc:
+            if self.cancel_event.is_set():
+                self.cancelled.emit()
+            else:
+                self.failed.emit(str(exc))
+
+
 class TTSPrepareWorker(QThread):
     progress = Signal(int, str)
     scene_ready = Signal(str, str, float, object)
@@ -258,6 +299,40 @@ class TTSPrepareWorker(QThread):
             self.finished_ok.emit()
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class KokoroDownloadWorker(QThread):
+    progress = Signal(int, str)
+    finished_ok = Signal(str)
+    cancelled = Signal()
+    failed = Signal(str)
+
+    def __init__(self, cancel_event: threading.Event | None = None) -> None:
+        super().__init__()
+        self.cancel_event = cancel_event or threading.Event()
+
+    def run(self) -> None:
+        try:
+            def _on_progress(filename: str, downloaded: int, total: int) -> None:
+                if total > 0:
+                    pct = int(100 * downloaded / total)
+                    mb_done = downloaded / (1024 * 1024)
+                    mb_tot = total / (1024 * 1024)
+                    self.progress.emit(pct, f"Scaricamento {filename}: {mb_done:.1f} / {mb_tot:.1f} MB")
+                else:
+                    mb_done = downloaded / (1024 * 1024)
+                    self.progress.emit(0, f"Scaricamento {filename}: {mb_done:.1f} MB")
+
+            models_dir = download_kokoro_models(
+                progress_cb=_on_progress,
+                cancel_event=self.cancel_event,
+            )
+            self.finished_ok.emit(str(models_dir))
+        except Exception as exc:
+            if self.cancel_event.is_set():
+                self.cancelled.emit()
+            else:
+                self.failed.emit(str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -902,16 +977,27 @@ class MainWindow(QMainWindow):
         self.edt_book_author.textChanged.connect(self._on_settings_edited)
         tset_form.addRow("Autore:", self.edt_book_author)
 
+        self.cmb_tts_engine = QComboBox()
+        self.cmb_tts_engine.addItem("Edge Neural (Online)", "edge-tts")
+        self.cmb_tts_engine.addItem("Kokoro Neural (Offline)", "kokoro")
+        self.cmb_tts_engine.addItem("Windows SAPI5 (Offline Base)", "offline")
+        self.cmb_tts_engine.currentIndexChanged.connect(self._on_tts_engine_changed)
+        tset_form.addRow("Motore TTS:", self.cmb_tts_engine)
+
         self.cmb_voice = QComboBox()
-        for vid, label in ITALIAN_VOICES:
-            self.cmb_voice.addItem(label, vid)
+        self._populate_voice_combo("edge-tts")
         self.cmb_voice.currentIndexChanged.connect(self._on_settings_edited)
         tset_form.addRow("Voce Narrante:", self.cmb_voice)
 
-        self.cmb_tts_engine = QComboBox()
-        self.cmb_tts_engine.addItems(["edge-tts", "offline"])
-        self.cmb_tts_engine.currentTextChanged.connect(self._on_settings_edited)
-        tset_form.addRow("Motore TTS:", self.cmb_tts_engine)
+        kokoro_row = QHBoxLayout()
+        self.lbl_kokoro_status = QLabel()
+        self.lbl_kokoro_status.setStyleSheet("color: #9AA6BC; font-size: 11px;")
+        self.btn_download_kokoro = QPushButton("⬇ Scarica Voci Offline")
+        self.btn_download_kokoro.clicked.connect(self._download_kokoro_models)
+        kokoro_row.addWidget(self.lbl_kokoro_status, 1)
+        kokoro_row.addWidget(self.btn_download_kokoro)
+        tset_form.addRow("Voci Offline (Kokoro):", kokoro_row)
+        self._refresh_kokoro_status()
 
         self.cmb_style = QComboBox()
         self.cmb_style.addItems(
@@ -1024,10 +1110,11 @@ class MainWindow(QMainWindow):
         s = self.project.settings
         self.edt_book_title.setText(self.project.title)
         self.edt_book_author.setText(self.project.author)
-        idx = self.cmb_voice.findData(s.tts_voice)
-        if idx >= 0:
-            self.cmb_voice.setCurrentIndex(idx)
-        self.cmb_tts_engine.setCurrentText(s.tts_engine)
+        eng_idx = self.cmb_tts_engine.findData(s.tts_engine)
+        if eng_idx >= 0:
+            self.cmb_tts_engine.setCurrentIndex(eng_idx)
+        self._populate_voice_combo(s.tts_engine, s.tts_voice)
+        self._refresh_kokoro_status()
         self.cmb_style.setCurrentText(s.text_style)
         self.cmb_quick_style.setCurrentText(s.text_style)
         self.cmb_font_family.setCurrentText(s.font_family)
@@ -1398,14 +1485,95 @@ class MainWindow(QMainWindow):
             return
         self.cmb_style.setCurrentText(style_text)
 
+    def _populate_voice_combo(self, engine: str, preferred_voice: str | None = None) -> None:
+        prev_updating = self._updating_ui
+        self._updating_ui = True
+        try:
+            current_voice = preferred_voice or self.cmb_voice.currentData()
+            self.cmb_voice.clear()
+            for vid, label in voices_for_engine(engine):
+                self.cmb_voice.addItem(label, vid)
+            if current_voice:
+                idx = self.cmb_voice.findData(current_voice)
+                if idx >= 0:
+                    self.cmb_voice.setCurrentIndex(idx)
+        finally:
+            self._updating_ui = prev_updating
+
+    def _refresh_kokoro_status(self) -> None:
+        if kokoro_models_present():
+            self.lbl_kokoro_status.setText("✅ Modelli Kokoro pronti (offline)")
+            self.lbl_kokoro_status.setStyleSheet("color: #6AD48B; font-size: 11px;")
+            self.btn_download_kokoro.setText("Modelli pronti")
+            self.btn_download_kokoro.setEnabled(False)
+        else:
+            self.lbl_kokoro_status.setText("Non scaricati (~310 MB)")
+            self.lbl_kokoro_status.setStyleSheet("color: #D8A45E; font-size: 11px;")
+            self.btn_download_kokoro.setText("⬇ Scarica Voci Offline")
+            self.btn_download_kokoro.setEnabled(True)
+
+    def _on_tts_engine_changed(self) -> None:
+        if self._updating_ui:
+            return
+        engine = self.cmb_tts_engine.currentData() or "edge-tts"
+        self._populate_voice_combo(engine)
+        self._on_settings_edited()
+
+    def _download_kokoro_models(self) -> None:
+        if kokoro_models_present():
+            self._refresh_kokoro_status()
+            return
+        cancel_ev = threading.Event()
+        dlg = TaskProgressDialog(
+            self,
+            lang=self._lang,
+            title="Scaricamento Voci Offline (Kokoro 82M)",
+            description=f"Scaricamento modelli neurali in:\n{default_models_dir()}",
+        )
+        worker = KokoroDownloadWorker(cancel_event=cancel_ev)
+        worker.progress.connect(dlg.update_progress)
+        dlg.btn_cancel.clicked.connect(cancel_ev.set)
+
+        def _on_ok(models_path: str) -> None:
+            dlg.close()
+            self._refresh_kokoro_status()
+            engine = self.cmb_tts_engine.currentData() or "edge-tts"
+            self._populate_voice_combo(engine)
+            self.lbl_status.setText(f"Modelli Kokoro scaricati in {models_path}")
+            QMessageBox.information(
+                self,
+                "Voci Offline Pronte",
+                "I modelli neurali Kokoro-82M sono stati scaricati con successo.\n"
+                "Puoi ora usare 'Kokoro Neural (Offline)' con voci naturali anche senza internet.",
+            )
+
+        def _on_cancelled() -> None:
+            dlg.close()
+            self._refresh_kokoro_status()
+            self.lbl_status.setText("Scaricamento modelli Kokoro annullato.")
+
+        def _on_failed(err: str) -> None:
+            dlg.close()
+            self._refresh_kokoro_status()
+            QMessageBox.critical(self, "Errore Scaricamento", f"Impossibile scaricare i modelli Kokoro:\n{err}")
+
+        worker.finished_ok.connect(_on_ok)
+        worker.cancelled.connect(_on_cancelled)
+        worker.failed.connect(_on_failed)
+        self._kokoro_dl_worker = worker
+        worker.start()
+        dlg.exec()
+
     def _on_settings_edited(self) -> None:
         if self._updating_ui:
             return
         self.project.title = self.edt_book_title.text()
         self.project.author = self.edt_book_author.text()
         s = self.project.settings
-        s.tts_voice = self.cmb_voice.currentData() or "it-IT-DiegoNeural"
-        s.tts_engine = self.cmb_tts_engine.currentText()  # type: ignore[assignment]
+        s.tts_engine = self.cmb_tts_engine.currentData() or "edge-tts"  # type: ignore[assignment]
+        s.tts_voice = self.cmb_voice.currentData() or (
+            "if_sara" if s.tts_engine == "kokoro" else "it-IT-DiegoNeural"
+        )
         s.text_style = self.cmb_style.currentText()  # type: ignore[assignment]
         if self.cmb_quick_style.currentText() != s.text_style:
             self._updating_ui = True
@@ -1684,14 +1852,29 @@ class MainWindow(QMainWindow):
         sc = self.project.chapters[self._sel_chapter].scenes[self._sel_scene]
         self.lbl_status.setText("Generazione anteprima vocale TTS...")
         self._karaoke_timer.stop()
-        ap, dur, timings = synthesize_scene_tts(
-            sc.text,
-            self.tts_cache_dir,
-            sc.id,
-            voice=self.project.settings.tts_voice,
-            rate=self.project.settings.tts_rate,
-            engine=self.project.settings.tts_engine,
-        )
+        try:
+            ap, dur, timings = synthesize_scene_tts(
+                sc.text,
+                self.tts_cache_dir,
+                sc.id,
+                voice=self.project.settings.tts_voice,
+                rate=self.project.settings.tts_rate,
+                engine=self.project.settings.tts_engine,
+            )
+        except FileNotFoundError as exc:
+            self.lbl_status.setText("Modelli offline non trovati.")
+            ans = QMessageBox.question(
+                self,
+                "Modelli Offline Non Scaricati",
+                f"{exc}\n\nVuoi scaricare ora i modelli vocali Kokoro (~310 MB)?",
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._download_kokoro_models()
+            return
+        except Exception as exc:
+            self.lbl_status.setText("Errore sintesi TTS.")
+            QMessageBox.warning(self, "Errore TTS", f"Impossibile generare la voce:\n{exc}")
+            return
         sc.tts_audio_path = ap
         sc.tts_duration_sec = dur
         sc.word_timings = timings

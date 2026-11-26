@@ -15,6 +15,9 @@ uv run pyinstaller `
     --add-data "assets;assets" `
     --collect-all imageio_ffmpeg `
     --collect-all edge_tts `
+    --collect-all kokoro_onnx `
+    --collect-all espeakng_loader `
+    --collect-all onnxruntime `
     --hidden-import pyttsx3.drivers `
     --hidden-import pyttsx3.drivers.sapi5 `
     main.py
