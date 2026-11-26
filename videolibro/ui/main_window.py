@@ -52,7 +52,7 @@ from ..i18n import tr
 from .. import __version__
 from ..importer import import_manuscript_file, split_text_into_scenes
 from ..models import Chapter, SceneBlock, VideoBookProject
-from ..renderer import ExportCancelledError, export_project_to_mp4, render_preview_frame
+from ..renderer import ExportCancelledError, export_project_to_mp4, render_preview_frame, write_export_log
 from ..sample_generator import build_demo_project
 from ..tts_engine import (
     ITALIAN_VOICES,
@@ -196,9 +196,12 @@ class ExportWorker(QThread):
             )
             self.finished_ok.emit(str(out))
         except ExportCancelledError:
+            write_export_log(Path(self.output_path).with_name(f"{Path(self.output_path).stem}_export.log"), "Esportazione annullata dall'utente")
             self.cancelled.emit()
         except Exception as exc:
-            self.failed.emit(str(exc))
+            log_path = Path(self.output_path).with_name(f"{Path(self.output_path).stem}_export.log")
+            write_export_log(log_path, f"ERRORE: {type(exc).__name__}: {exc}")
+            self.failed.emit(f"{exc}\n\nLog esportazione: {log_path}")
 
 
 class TTSBatchWorker(QThread):
@@ -2057,7 +2060,8 @@ class MainWindow(QMainWindow):
         self.btn_export.setEnabled(False)
         self.progress_bar.setValue(0)
         dlg = ExportProgressDialog(
-            self, lang=self._lang, total_duration_sec=self.project.total_duration(), speed_mode=options.speed_mode
+            self, lang=self._lang, total_duration_sec=self.project.total_duration(), speed_mode=options.speed_mode,
+            log_path=Path(out_path).with_name(f"{Path(out_path).stem}_export.log"),
         )
         self._export_dialog = dlg
 
@@ -2098,7 +2102,8 @@ class MainWindow(QMainWindow):
         self._close_export_dialog()
         self.btn_export.setEnabled(True)
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("Esportazione annullata.")
+        log_path = Path(self._worker.output_path).with_name(f"{Path(self._worker.output_path).stem}_export.log")
+        self.lbl_status.setText(f"Esportazione annullata. Log: {log_path}")
 
     def _on_export_failed(self, err: str) -> None:
         self._close_export_dialog()

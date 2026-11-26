@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +19,16 @@ from .tts_engine import synthesize_scene_tts
 
 ProgressCallback = Callable[[int, str], None]
 SizeCallback = Callable[[int], None]
+
+
+def write_export_log(log_path: Path, message: str) -> None:
+    """Append a timestamped diagnostic line to the export log."""
+    with log_path.open("a", encoding="utf-8") as log:
+        log.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')}  {message}\n")
+
+
+def _fmt_log_bytes(size: int) -> str:
+    return f"{size / (1024 * 1024):.1f} MB"
 
 
 class ExportCancelledError(Exception):
@@ -503,8 +514,14 @@ def _run_ffmpeg(
     progress_file: Path | None = None,
     duration_sec: float = 0.0,
     progress_cb: Callable[[float], None] | None = None,
+    log_path: Path | None = None,
+    log_label: str = "FFmpeg",
 ) -> None:
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    started = time.monotonic()
+    last_log = started
+    if log_path:
+        write_export_log(log_path, f"{log_label}: avvio processo FFmpeg")
     proc = subprocess.Popen(
         [ffmpeg_exe, "-y", *args],
         stdout=subprocess.PIPE,
@@ -535,10 +552,18 @@ def _run_ffmpeg(
                 progress_cb(min(1.0, max(0.0, out_time / duration_sec)))
             except (OSError, ValueError):
                 pass
+        now = time.monotonic()
+        if log_path and now - last_log >= 15:
+            write_export_log(log_path, f"{log_label}: FFmpeg ancora in esecuzione da {int(now - started)} s")
+            last_log = now
         time.sleep(0.15)
     _, stderr = proc.communicate()
     if proc.returncode != 0:
+        if log_path:
+            write_export_log(log_path, f"{log_label}: errore FFmpeg (codice {proc.returncode})\n{(stderr or '')[-5000:]}")
         raise RuntimeError(f"FFmpeg error:\n{(stderr or '')[-1200:]}")
+    if log_path:
+        write_export_log(log_path, f"{log_label}: completato in {int(time.monotonic() - started)} s")
 
 
 def export_project_to_mp4(
@@ -554,6 +579,10 @@ def export_project_to_mp4(
     """Render the complete VideoLibro project to a TV-ready H.264/AAC MP4 file."""
     out_path = Path(output_mp4)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path = out_path.with_name(f"{out_path.stem}_export.log")
+    write_export_log(log_path, "=" * 60)
+    write_export_log(log_path, f"Avvio esportazione: {out_path}")
+    write_export_log(log_path, f"Risoluzione {project.settings.resolution}, {project.settings.fps} fps, profilo {speed_mode}")
     w, h = project.settings.width, project.settings.height
     fps = project.settings.fps
     output_format = "mkv" if output_format.lower() == "mkv" else "mp4"
@@ -574,6 +603,7 @@ def export_project_to_mp4(
                         raise ExportCancelledError("Esportazione annullata dall'utente.")
                     done_scenes += 1
                     if not sc.tts_audio_path or not Path(sc.tts_audio_path).exists():
+                        write_export_log(log_path, f"TTS scena {done_scenes}/{total_scenes}: avvio sintesi")
                         if progress_cb:
                             pct = int(5 + 25 * (done_scenes / max(1, total_scenes)))
                             progress_cb(pct, f"Sintesi vocale TTS ({done_scenes}/{total_scenes})...")
@@ -588,6 +618,7 @@ def export_project_to_mp4(
                         sc.tts_audio_path = ap
                         sc.tts_duration_sec = dur
                         sc.word_timings = timings
+                        write_export_log(log_path, f"TTS scena {done_scenes}/{total_scenes}: completata ({dur:.1f} s audio)")
 
         entries = project.compute_timeline()
         if not entries:
@@ -606,6 +637,7 @@ def export_project_to_mp4(
             if progress_cb:
                 pct = int(30 + 60 * (idx / len(entries)))
                 progress_cb(pct, f"Rendering scena {idx + 1}/{len(entries)}: {entry.label}")
+            write_export_log(log_path, f"Scena {idx + 1}/{len(entries)} avvio: {entry.label!r}, tipo={entry.kind}, durata={entry.duration_sec:.2f} s, media={entry.media_path or '(nessuna)'}")
 
             ch = project.chapters[entry.chapter_index]
             dur = entry.duration_sec
@@ -643,6 +675,7 @@ def export_project_to_mp4(
                 kb_mode = sc.ken_burns
                 tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).exists() else ""
             ov_img.save(overlay_png, "PNG")
+            write_export_log(log_path, f"Scena {idx + 1}/{len(entries)} overlay pronto" + (f" (sequenza karaoke: {count} fotogrammi)" if overlay_sequence else ""))
 
             seg_mp4 = tmp_dir / f"seg_{idx:04d}{segment_ext}"
             args: list[str] = []
@@ -746,16 +779,20 @@ def export_project_to_mp4(
                 progress_file=progress_file,
                 duration_sec=dur,
                 progress_cb=report_segment_progress,
+                log_path=log_path,
+                log_label=f"Scena {idx + 1}/{len(entries)}",
             )
             segment_paths.append(seg_mp4)
             if seg_mp4.exists():
                 accumulated_bytes += seg_mp4.stat().st_size
+                write_export_log(log_path, f"Scena {idx + 1}/{len(entries)} completata, file temporaneo {_fmt_log_bytes(seg_mp4.stat().st_size)}")
                 if size_cb:
                     size_cb(accumulated_bytes)
 
         # 3. Concatenate all segments into the selected output container
         if progress_cb:
             progress_cb(93, "Assemblaggio finale del VideoLibro MP4...")
+        write_export_log(log_path, f"Assemblaggio finale di {len(segment_paths)} segmenti")
 
         concat_txt = tmp_dir / "concat.txt"
         concat_txt.write_text(
@@ -782,6 +819,8 @@ def export_project_to_mp4(
                     str(temp_output),
                 ],
                 cancel_event=cancel_event,
+                log_path=log_path,
+                log_label="Assemblaggio finale",
             )
             temp_output.replace(out_path)
         except Exception:
@@ -792,4 +831,5 @@ def export_project_to_mp4(
 
     if progress_cb:
         progress_cb(100, f"VideoLibro completato: {out_path.name}")
+    write_export_log(log_path, f"Esportazione completata: {out_path} ({out_path.stat().st_size} byte)")
     return out_path

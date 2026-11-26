@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -182,7 +183,7 @@ class ExportProgressDialog(QDialog):
 
     cancelRequested = Signal()
 
-    def __init__(self, parent=None, lang: str = "it", total_duration_sec: float = 0.0, speed_mode: str = "standard") -> None:
+    def __init__(self, parent=None, lang: str = "it", total_duration_sec: float = 0.0, speed_mode: str = "standard", log_path: str | Path | None = None) -> None:
         super().__init__(parent)
         self._lang = lang
         self._speed_mode = speed_mode
@@ -199,7 +200,7 @@ class ExportProgressDialog(QDialog):
             | Qt.WindowType.WindowMinimizeButtonHint
         )
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self.setFixedSize(500, 240)
+        self.setFixedSize(540, 260)
 
         is_en = lang == "en"
         self.setWindowTitle("Exporting VideoBook..." if is_en else "Esportazione VideoLibro...")
@@ -241,6 +242,14 @@ class ExportProgressDialog(QDialog):
         )
         self.lbl_size.setStyleSheet("color: #9AA7BE; font-size: 9.5pt;")
         lay.addWidget(self.lbl_size)
+
+        self.lbl_log = QLabel(
+            f"Log: {log_path}" if lang == "en" else f"Log esportazione: {log_path}"
+        )
+        self.lbl_log.setWordWrap(True)
+        self.lbl_log.setStyleSheet("color: #9AA7BE; font-size: 8pt;")
+        self.lbl_log.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(self.lbl_log)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
