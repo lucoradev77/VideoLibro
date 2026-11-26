@@ -1,6 +1,6 @@
 [project]
 name = "videolibro"
-version = "0.1.2"
+version = "1.2.1"
 description = "Add your description here"
 authors = [
     { name = "Luca Corallo", email = "lucoradev@outlook.it" }
