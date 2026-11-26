@@ -62,6 +62,7 @@ from ..tts_engine import (
     synthesize_scene_tts,
     voices_for_engine,
 )
+from .chapter_media_dialog import ChapterMediaStudioDialog
 from .export_dialog import ExportOptionsDialog, ExportProgressDialog, TaskProgressDialog
 from .timeline_widget import TimelineWidget
 
@@ -591,6 +592,11 @@ class MainWindow(QMainWindow):
         self.btn_media_library.clicked.connect(self.import_to_media_library)
         tb.addWidget(self.btn_media_library)
 
+        self.btn_chapter_studio = QPushButton("🖼️ Media Capitoli")
+        self.btn_chapter_studio.setToolTip("Apri studio visuale a card per impostare immagini e posizione per ogni capitolo")
+        self.btn_chapter_studio.clicked.connect(self.open_chapter_media_studio)
+        tb.addWidget(self.btn_chapter_studio)
+
         tb.addSeparator()
 
         self.btn_tts_all = QPushButton("🎙️ Genera Voci TTS")
@@ -730,8 +736,26 @@ class MainWindow(QMainWindow):
         left_panel = QWidget()
         left_lay = QVBoxLayout(left_panel)
         left_lay.setContentsMargins(0, 0, 0, 0)
+        left_hdr_row = QHBoxLayout()
+        left_hdr_row.setContentsMargins(0, 0, 0, 0)
+        left_hdr_row.setSpacing(4)
         self.lbl_left_hdr = QLabel("📚 Capitoli e Scene del Manoscritto")
-        left_lay.addWidget(self.lbl_left_hdr)
+        self.b_collapse_all = QPushButton()
+        self.b_collapse_all.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
+        self.b_collapse_all.setFixedSize(28, 24)
+        self.b_collapse_all.setToolTip("Comprimi tutto — mostra solo i capitoli")
+        self.b_collapse_all.setStyleSheet("color: white;")
+        self.b_collapse_all.clicked.connect(self.collapse_all_chapters)
+        self.b_expand_all = QPushButton()
+        self.b_expand_all.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown))
+        self.b_expand_all.setFixedSize(28, 24)
+        self.b_expand_all.setToolTip("Espandi tutto — mostra capitoli e scene")
+        self.b_expand_all.setStyleSheet("color: white;")
+        self.b_expand_all.clicked.connect(self.expand_all_chapters)
+        left_hdr_row.addWidget(self.lbl_left_hdr, 1)
+        left_hdr_row.addWidget(self.b_collapse_all)
+        left_hdr_row.addWidget(self.b_expand_all)
+        left_lay.addLayout(left_hdr_row)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
@@ -858,9 +882,11 @@ class MainWindow(QMainWindow):
         self.btn_extend_media.setToolTip("Applica l'immagine/video di questa scena anche a tutte le scene successive del capitolo")
         self.btn_extend_media.clicked.connect(self.extend_media_to_next_scenes)
         ext_row = QHBoxLayout()
+        ext_row.setContentsMargins(0, 0, 0, 0)
         ext_row.addWidget(self.chk_use_ch_media)
+        ext_row.addStretch(1)
         ext_row.addWidget(self.btn_extend_media)
-        scene_form.addRow("", ext_row)
+        scene_form.addRow(ext_row)
 
         self.cmb_ken_burns = QComboBox()
         self.cmb_ken_burns.addItems(["zoom_in", "zoom_out", "pan_left", "pan_right", "static"])
@@ -1191,8 +1217,8 @@ class MainWindow(QMainWindow):
         else:
             self.txt_scene.setEnabled(False)
             self.txt_scene.setPlainText("")
-            self.lbl_scene_media.clear()
-            self._select_library_path(self.cmb_scene_library, "")
+            self.lbl_scene_media.setText(ch.default_media_path)
+            self._select_library_path(self.cmb_scene_library, ch.default_media_path)
             self.spin_image_zoom.setValue(1.0)
             self.spin_image_x.setValue(0.0)
             self.spin_image_y.setValue(0.0)
@@ -1644,7 +1670,10 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self.project.save(path)
-        self.lbl_status.setText(f"Progetto salvato in {Path(path).name}")
+        self._populate_inspector()
+        self._refresh_timeline_and_preview()
+        p = Path(path)
+        self.lbl_status.setText(f"Progetto salvato in {p.name} (media copiati in {p.stem}_media)")
 
     def add_chapter(self) -> None:
         idx = len(self.project.chapters) + 1
@@ -1728,8 +1757,37 @@ class MainWindow(QMainWindow):
                 self._sel_chapter, self._sel_scene = 0, None
         self._refresh_all()
 
+    def collapse_all_chapters(self) -> None:
+        self.tree.collapseAll()
+
+    def expand_all_chapters(self) -> None:
+        self.tree.expandAll()
+
+    def open_chapter_media_studio(self) -> None:
+        if not self.project.chapters:
+            return
+        library_items: list[tuple[str, str]] = []
+        if self.media_library_dir.is_dir():
+            for p in sorted(self.media_library_dir.iterdir(), key=lambda x: x.name.casefold()):
+                if p.is_file() and p.suffix.lower() in {
+                    ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".mp4", ".mov", ".avi", ".mkv", ".webm"
+                }:
+                    library_items.append((f"Libreria: {p.name}", str(p)))
+        bg_dir = self.workspace_dir / "assets" / "backgrounds"
+        for label, fname in BUILTIN_BACKGROUNDS:
+            candidate = bg_dir / fname
+            if candidate.is_file():
+                library_items.append((f"Predefinito: {label}", str(candidate)))
+
+        dlg = ChapterMediaStudioDialog(self.project, library_items, self.workspace_dir, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._populate_inspector()
+            self._refresh_timeline_and_preview()
+            self.lbl_status.setText("Media e posizioni dei capitoli aggiornati.")
+
     def pick_scene_media(self) -> None:
         if self._sel_scene is None:
+            self.pick_chapter_media()
             return
         path, _ = QFileDialog.getOpenFileName(
             self, "Seleziona Immagine o Video per la Scena", str(self.workspace_dir), "Media (*.jpg *.jpeg *.png *.mp4 *.mov *.avi)"
@@ -1809,9 +1867,16 @@ class MainWindow(QMainWindow):
         self.lbl_status.setText(f"Aggiunti {added} file alla Libreria Media.")
 
     def _on_scene_library_selected(self, index: int) -> None:
-        if self._updating_ui or index <= 0 or self._sel_scene is None:
+        if self._updating_ui or index <= 0 or not self.project.chapters:
             return
         path = str(self.cmb_scene_library.itemData(index))
+        if self._sel_scene is None:
+            ch = self.project.chapters[self._sel_chapter]
+            ch.default_media_path = path
+            ch.default_media_type = self._media_type_for_path(path)
+            self._populate_inspector()
+            self._refresh_timeline_and_preview()
+            return
         sc = self.project.chapters[self._sel_chapter].scenes[self._sel_scene]
         sc.media_path = path
         sc.media_type = self._media_type_for_path(path)

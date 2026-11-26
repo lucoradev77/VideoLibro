@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -199,9 +201,62 @@ class VideoBookProject:
             for ch in self.chapters
         )
 
+    @staticmethod
+    def _localize_media_path(
+        raw_path: str,
+        media_dir: Path,
+        copied_cache: dict[Path, Path],
+    ) -> str:
+        """Copy an external media file into the project's local media folder and return its path."""
+        if not raw_path:
+            return ""
+        src = Path(raw_path)
+        if not src.is_file():
+            return raw_path
+        resolved_src = src.resolve()
+        if resolved_src in copied_cache:
+            return str(copied_cache[resolved_src])
+        resolved_media_dir = media_dir.resolve()
+        if resolved_src.parent == resolved_media_dir:
+            copied_cache[resolved_src] = src
+            return str(src)
+
+        media_dir.mkdir(parents=True, exist_ok=True)
+        dest = media_dir / src.name
+        if dest.exists():
+            # Disambiguate if a different file with the same name already exists
+            short_hash = hashlib.sha1(str(resolved_src).encode("utf-8")).hexdigest()[:6]
+            dest = media_dir / f"{src.stem}_{short_hash}{src.suffix}"
+        if not dest.exists():
+            shutil.copy2(src, dest)
+        copied_cache[resolved_src] = dest
+        return str(dest)
+
+    def package_media(self, project_file: str | Path) -> Path:
+        """Copy all referenced media files into `<stem>_media` next to the .vlibro file."""
+        p = Path(project_file)
+        media_dir = p.parent / f"{p.stem}_media"
+        copied_cache: dict[Path, Path] = {}
+        self.settings.global_bg_audio_path = self._localize_media_path(
+            self.settings.global_bg_audio_path, media_dir, copied_cache
+        )
+        for ch in self.chapters:
+            ch.default_media_path = self._localize_media_path(
+                ch.default_media_path, media_dir, copied_cache
+            )
+            ch.bg_audio_path = self._localize_media_path(
+                ch.bg_audio_path, media_dir, copied_cache
+            )
+            for sc in ch.scenes:
+                sc.media_path = self._localize_media_path(
+                    sc.media_path, media_dir, copied_cache
+                )
+        return media_dir
+
     def save(self, path: str | Path) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
+        self.package_media(p)
         with p.open("w", encoding="utf-8") as f:
             json.dump(asdict(self), f, ensure_ascii=False, indent=2)
 
