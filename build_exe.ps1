@@ -29,6 +29,7 @@ uv run pyinstaller `
     --add-binary "$($opensslDlls[1]);." `
     --collect-all imageio_ffmpeg `
     --collect-all edge_tts `
+    --collect-all httpx `
     --collect-all kokoro_onnx `
     --collect-all espeakng_loader `
     --collect-all onnxruntime `
