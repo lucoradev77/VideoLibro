@@ -191,6 +191,17 @@ def _parse_rate_to_speed(rate: str) -> float:
     return max(0.5, min(2.0, 1.0 + pct / 100.0))
 
 
+def normalize_tts_text(text: str) -> str:
+    """Remove punctuation-only fragments that speech engines cannot meaningfully read."""
+    text = re.sub(r"[\u2010-\u2015\-_=*~#|]+", " ", text)
+    text = re.sub(r"[\u200b-\u200f\u202a-\u202e\ufeff]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    # A scene made only of punctuation or symbols has no spoken content.
+    if not re.search(r"[\w\u00c0-\u024f]", text, re.UNICODE):
+        return ""
+    return text
+
+
 def _kokoro_tts(
     text: str,
     output_wav: Path,
@@ -303,7 +314,7 @@ def synthesize_scene_tts(
     engine: str = "edge-tts",
 ) -> tuple[str, float, list[dict]]:
     """Generate narration audio for a scene and return (audio_path, duration_sec, word_timings)."""
-    clean_text = text.strip()
+    clean_text = normalize_tts_text(text)
     if not clean_text:
         return "", 2.0, []
 

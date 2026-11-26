@@ -59,6 +59,7 @@ from ..tts_engine import (
     default_models_dir,
     download_kokoro_models,
     kokoro_models_present,
+    normalize_tts_text,
     synthesize_scene_tts,
     voices_for_engine,
 )
@@ -2015,6 +2016,29 @@ class MainWindow(QMainWindow):
     def export_mp4_dialog(self) -> None:
         if self._worker and self._worker.isRunning():
             return
+        invalid_scenes = [
+            (chapter.title, scene_index + 1, scene.text)
+            for chapter in self.project.chapters
+            for scene_index, scene in enumerate(chapter.scenes)
+            if not normalize_tts_text(scene.text)
+        ]
+        if invalid_scenes:
+            examples = "\n".join(
+                f"• {chapter} — scena {index}: {text[:50]!r}"
+                for chapter, index, text in invalid_scenes[:12]
+            )
+            extra = "\n…" if len(invalid_scenes) > 12 else ""
+            reply = QMessageBox.warning(
+                self,
+                "Controllo testo TTS",
+                f"Sono state trovate {len(invalid_scenes)} scene senza testo pronunciabile. "
+                "La voce verrà saltata per queste scene.\n\n"
+                f"{examples}{extra}\n\nVuoi continuare con l’esportazione?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         options = ExportOptionsDialog(self, self._lang, self.project.total_duration())
         if options.exec() != QDialog.DialogCode.Accepted:
             return

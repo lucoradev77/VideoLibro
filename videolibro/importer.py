@@ -42,7 +42,25 @@ def split_text_into_scenes(text: str, max_chars: int = 250) -> list[SceneBlock]:
         if buffer:
             scenes.append(SceneBlock(text=buffer, duration_sec=_estimate_reading_sec(buffer)))
 
-    return scenes
+    return _merge_orphan_scenes(scenes)
+
+
+def _merge_orphan_scenes(scenes: list[SceneBlock]) -> list[SceneBlock]:
+    """Join one-character drop-cap fragments to the following scene."""
+    merged: list[SceneBlock] = []
+    i = 0
+    while i < len(scenes):
+        scene = scenes[i]
+        if len(scene.text.strip()) <= 1 and i + 1 < len(scenes):
+            following = scenes[i + 1]
+            scene.text = f"{scene.text.strip()}{following.text.lstrip()}"
+            scene.duration_sec = _estimate_reading_sec(scene.text)
+            merged.append(scene)
+            i += 2
+            continue
+        merged.append(scene)
+        i += 1
+    return merged
 
 
 def _estimate_reading_sec(text: str) -> float:
