@@ -223,6 +223,9 @@ class TTSBatchWorker(QThread):
                         self.cancelled.emit()
                         return
                     done += 1
+                    if sc.tts_audio_path and Path(sc.tts_audio_path).is_file():
+                        self.progress.emit(int(100 * done / max(1, total)), f"TTS già pronto {done}/{total}...")
+                        continue
                     self.progress.emit(int(100 * done / max(1, total)), f"Generazione TTS {done}/{total}...")
                     ap, dur, timings = synthesize_scene_tts(
                         sc.text,

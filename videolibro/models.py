@@ -251,6 +251,9 @@ class VideoBookProject:
                 sc.media_path = self._localize_media_path(
                     sc.media_path, media_dir, copied_cache
                 )
+            sc.tts_audio_path = self._localize_media_path(
+                sc.tts_audio_path, media_dir, copied_cache
+            )
         return media_dir
 
     def save(self, path: str | Path) -> None:
