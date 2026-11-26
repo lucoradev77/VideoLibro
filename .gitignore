@@ -16,6 +16,8 @@ demo_assets/
 *.wav
 *.mp3
 *.spec
+models/*.onnx
+models/*.bin
 
 # IDE & OS
 .vscode/
