@@ -41,6 +41,8 @@ jobs:
             --add-binary "$($opensslDlls[0]);." `
             --add-binary "$($opensslDlls[1]);." `
             --collect-all imageio_ffmpeg --collect-all edge_tts `
+            --collect-all kokoro_onnx --collect-all espeakng_loader `
+            --collect-all onnxruntime `
             --hidden-import pyttsx3.drivers `
             --hidden-import pyttsx3.drivers.sapi5 `
             --additional-hooks-dir hooks `
@@ -72,6 +74,8 @@ jobs:
           uv run pyinstaller --noconfirm --clean --onefile --windowed
           --name VideoLibroStudio --add-data "assets:assets"
           --collect-all imageio_ffmpeg --collect-all edge_tts
+          --collect-all kokoro_onnx --collect-all espeakng_loader
+          --collect-all onnxruntime
           --hidden-import pyttsx3.drivers main.py
       - name: Package Linux release
         run: tar -czf dist/VideoLibroStudio-Linux-x86_64.tar.gz -C dist VideoLibroStudio
@@ -97,6 +101,8 @@ jobs:
           uv run pyinstaller --noconfirm --clean --windowed
           --name VideoLibroStudio --add-data "assets:assets"
           --collect-all imageio_ffmpeg --collect-all edge_tts
+          --collect-all kokoro_onnx --collect-all espeakng_loader
+          --collect-all onnxruntime
           --hidden-import pyttsx3.drivers main.py
       - name: Package macOS app
         run: ditto -c -k --sequesterRsrc --keepParent dist/VideoLibroStudio.app dist/VideoLibroStudio-macOS-AppleSilicon.zip
