@@ -644,24 +644,33 @@ class MainWindow(QMainWindow):
         tb.addWidget(self.btn_update)
 
     def check_for_updates(self) -> None:
-        request = QNetworkRequest(QUrl("https://api.github.com/repos/lucoradev77/VideoLibro/releases/latest"))
-        request.setRawHeader(b"Accept", b"application/vnd.github+json")
-        request.setRawHeader(b"User-Agent", b"VideoLibroStudio")
-        request.setTransferTimeout(10000)
-        self._update_manager.get(request)
+        try:
+            request = QNetworkRequest(QUrl("https://api.github.com/repos/lucoradev77/VideoLibro/releases/latest"))
+            request.setRawHeader(b"Accept", b"application/vnd.github+json")
+            request.setRawHeader(b"User-Agent", b"VideoLibroStudio")
+            request.setTransferTimeout(10000)
+            self._update_manager.get(request)
+        except Exception:
+            pass  # Network not available at startup — silently skip
 
     def _on_update_check_finished(self, reply) -> None:
         try:
-            if reply.error():
-                if hasattr(self, "lbl_status"):
-                    self.lbl_status.setText(
-                        f"Controllo aggiornamenti non riuscito: {reply.errorString()}"
-                    )
+            err = reply.error()
+            # QNetworkReply.NetworkError.NoError == 0
+            if err and int(err) != 0:
+                # Silently ignore network errors (offline, firewall, timeout)
+                if hasattr(self, "lbl_status") and self.lbl_status.text().startswith("Pronto"):
+                    pass  # don't overwrite a meaningful status
                 return
-            import json
+            import json as _json
 
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
-            latest_tag = str(payload.get("tag_name", ""))
+            raw = bytes(reply.readAll())
+            if not raw:
+                return
+            payload = _json.loads(raw.decode("utf-8", errors="replace"))
+            latest_tag = str(payload.get("tag_name", "")).strip()
+            if not latest_tag:
+                return
             latest_version = self._parse_version(latest_tag)
             current_version = self._parse_version(__version__)
             if latest_version is None or current_version is None:
@@ -673,12 +682,12 @@ class MainWindow(QMainWindow):
                 self._latest_release_tag = latest_tag
                 self._update_update_button()
                 if hasattr(self, "lbl_status"):
-                    self.lbl_status.setText(f"Aggiornamento {latest_tag} disponibile.")
+                    self.lbl_status.setText(f"⬆ Aggiornamento {latest_tag} disponibile — clicca il pulsante in alto.")
             elif hasattr(self, "lbl_status"):
                 self.lbl_status.setText(f"VideoLibro è aggiornato ({__version__}).")
-        except (ValueError, TypeError, AttributeError):
-            if hasattr(self, "lbl_status"):
-                self.lbl_status.setText("Risposta GitHub non valida durante il controllo aggiornamenti.")
+        except Exception:
+            # Any parse / network error: silently swallow, never crash the app
+            pass
         finally:
             reply.deleteLater()
 
