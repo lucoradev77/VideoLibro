@@ -386,21 +386,20 @@ def _draw_karaoke_line(draw, line, x, y, font, active_word_index, base_fill,
     cursor = x
     for index, word in enumerate(words):
         is_active = index == active_word_index
-        is_neighbor = abs(index - active_word_index) == 1
-        fill = base_fill
+        fill = active_fill if is_active else base_fill
         # Draw the style shadow first so the karaoke background fully covers
         # it; otherwise its offset glyph appears doubled inside the highlight.
         if shadow and not is_active:
             draw.text((cursor + 1, y + 2), word, font=font, fill=(0, 0, 0, 200))
-        if is_active or is_neighbor:
+        if is_active:
             bbox = draw.textbbox((cursor, y), word, font=font)
-            pad_x, pad_y = 2, 1
+            pad_x, pad_y = 4, 3
             draw.rounded_rectangle(
                 (bbox[0] - pad_x, bbox[1] - pad_y, bbox[2] + pad_x, bbox[3] + pad_y),
-                radius=3,
-                fill=(255, 226, 64, 72),
-                outline=(25, 31, 42, 110),
-                width=1,
+                radius=5,
+                fill=(255, 226, 64, 220),
+                outline=(25, 31, 42, 220),
+                width=2,
             )
         draw.text((cursor, y), word, font=font, fill=fill)
         cursor += draw.textlength(word, font=font) + space_width
@@ -639,6 +638,17 @@ def export_project_to_mp4(
                         sc.word_timings = timings
                         write_export_log(log_path, f"TTS scena {done_scenes}/{total_scenes}: completata ({dur:.1f} s audio)")
 
+        # Keep TTS generated in this temporary render directory after export.
+        tts_store = out_path.parent / f"{out_path.stem}_tts"
+        for chapter in project.chapters:
+            for scene in chapter.scenes:
+                source = Path(scene.tts_audio_path) if scene.tts_audio_path else None
+                if source and source.is_file() and source.is_relative_to(tmp_dir):
+                    tts_store.mkdir(parents=True, exist_ok=True)
+                    destination = tts_store / f"{scene.id}{source.suffix}"
+                    shutil.copy2(source, destination)
+                    scene.tts_audio_path = str(destination)
+
         entries = project.compute_timeline()
         if not entries:
             raise ValueError("Il progetto non contiene capitoli o scene da esportare.")
@@ -673,18 +683,23 @@ def export_project_to_mp4(
                 tts_path = ""
             else:
                 sc = ch.scenes[entry.scene_index or 0]
-                overlay_sequence = bool(project.settings.karaoke_enabled and sc.word_timings)
+                tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).is_file() else ""
+                overlay_sequence = bool(project.settings.karaoke_enabled and sc.word_timings and tts_path)
                 if overlay_sequence:
                     overlay_fps = 10
                     count = max(1, int(round(dur * overlay_fps)))
                     for frame_index in range(count):
                         elapsed = frame_index / overlay_fps
-                        active_word = None
-                        for word_index, timing in enumerate(sc.word_timings):
-                            if float(timing.get("offset_sec", 0.0)) <= elapsed:
-                                active_word = word_index
-                            else:
-                                break
+                        active_word = next(
+                            (
+                                word_index
+                                for word_index, timing in enumerate(sc.word_timings)
+                                if float(timing.get("offset_sec", 0.0)) <= elapsed
+                                < float(timing.get("offset_sec", 0.0))
+                                + max(0.05, float(timing.get("duration_sec", 0.0)))
+                            ),
+                            None,
+                        )
                         frame = render_scene_overlay(
                             project, ch, sc, entry.end_sec / total_dur, w, h, active_word
                         )
@@ -694,7 +709,6 @@ def export_project_to_mp4(
                     ov_img = render_scene_overlay(project, ch, sc, entry.end_sec / total_dur, w, h)
                 kb_mode = sc.ken_burns
                 image_zoom, image_x, image_y = sc.image_zoom, sc.image_x, sc.image_y
-                tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).exists() else ""
             ov_img.save(overlay_png, "PNG")
             write_export_log(log_path, f"Scena {idx + 1}/{len(entries)} overlay pronto" + (f" (sequenza karaoke: {count} fotogrammi)" if overlay_sequence else ""))
 

@@ -352,6 +352,7 @@ class MainWindow(QMainWindow):
         self.media_library_dir = workspace_dir / "media_library"
         self.tts_cache_dir = Path(tempfile.gettempdir()) / "videolibro_tts_cache"
         self.tts_cache_dir.mkdir(parents=True, exist_ok=True)
+        self._project_file_path: Path | None = None
 
         self.project = VideoBookProject()
         self._settings_store = QSettings("VideoLibroStudio", "App")
@@ -1352,6 +1353,7 @@ class MainWindow(QMainWindow):
             sc.text = new_text
             sc.tts_audio_path = ""
             sc.tts_duration_sec = 0.0
+            sc.word_timings = []
         sc.use_chapter_media = self.chk_use_ch_media.isChecked()
         sc.ken_burns = self.cmb_ken_burns.currentText()  # type: ignore[assignment]
         sc.image_zoom = self.spin_image_zoom.value()
@@ -1661,6 +1663,7 @@ class MainWindow(QMainWindow):
                 ch.default_media_path = default_bg
                 ch.default_media_type = "image"
         self.project = VideoBookProject(title=title, source_file=path, chapters=chapters)
+        self._project_file_path = None
         self._sel_chapter = 0
         self._sel_scene = 0 if chapters and chapters[0].scenes else None
         self._refresh_all()
@@ -1671,6 +1674,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self.project = VideoBookProject.load(path)
+        self._project_file_path = Path(path)
         self._sel_chapter = 0
         self._sel_scene = 0 if self.project.chapters and self.project.chapters[0].scenes else None
         self._refresh_all()
@@ -1686,6 +1690,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self.project.save(path)
+        self._project_file_path = Path(path)
         self._populate_inspector()
         self._refresh_timeline_and_preview()
         p = Path(path)
@@ -2085,6 +2090,15 @@ class MainWindow(QMainWindow):
 
     def _on_export_done(self, out_path: str) -> None:
         self._close_export_dialog()
+        if self._project_file_path is not None:
+            try:
+                self.project.save(self._project_file_path)
+            except OSError as exc:
+                QMessageBox.warning(
+                    self,
+                    "Progetto non aggiornato",
+                    f"Il video è stato esportato, ma non è stato possibile salvare i percorsi TTS nel progetto:\n{exc}",
+                )
         self.btn_export.setEnabled(True)
         self.progress_bar.setValue(100)
         self.lbl_status.setText(f"Esportazione completata: {out_path}")
