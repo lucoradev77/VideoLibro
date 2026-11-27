@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -524,13 +525,27 @@ def _run_ffmpeg(
         write_export_log(log_path, f"{log_label}: avvio processo FFmpeg")
     proc = subprocess.Popen(
         [ffmpeg_exe, "-y", *args],
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    stderr_lines: deque[str] = deque(maxlen=200)
+
+    def _drain_stderr() -> None:
+        if proc.stderr is None:
+            return
+        try:
+            for line in proc.stderr:
+                stderr_lines.append(line)
+        finally:
+            proc.stderr.close()
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+
     while proc.poll() is None:
         if cancel_event and cancel_event.is_set():
             proc.terminate()
@@ -538,6 +553,8 @@ def _run_ffmpeg(
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 proc.kill()
+                proc.wait(timeout=3)
+            stderr_thread.join(timeout=1)
             raise ExportCancelledError("Esportazione annullata dall'utente.")
         if progress_file and duration_sec > 0 and progress_cb and progress_file.exists():
             try:
@@ -557,7 +574,9 @@ def _run_ffmpeg(
             write_export_log(log_path, f"{log_label}: FFmpeg ancora in esecuzione da {int(now - started)} s")
             last_log = now
         time.sleep(0.15)
-    _, stderr = proc.communicate()
+    proc.wait()
+    stderr_thread.join(timeout=2)
+    stderr = "".join(stderr_lines)
     if proc.returncode != 0:
         if log_path:
             write_export_log(log_path, f"{log_label}: errore FFmpeg (codice {proc.returncode})\n{(stderr or '')[-5000:]}")
@@ -650,6 +669,7 @@ def export_project_to_mp4(
             if entry.kind == "title_card":
                 ov_img = render_title_card_overlay(project, ch, w, h)
                 kb_mode: KenBurnsMode = "zoom_in"
+                image_zoom, image_x, image_y = 1.0, 0.0, 0.0
                 tts_path = ""
             else:
                 sc = ch.scenes[entry.scene_index or 0]
@@ -673,6 +693,7 @@ def export_project_to_mp4(
                 else:
                     ov_img = render_scene_overlay(project, ch, sc, entry.end_sec / total_dur, w, h)
                 kb_mode = sc.ken_burns
+                image_zoom, image_x, image_y = sc.image_zoom, sc.image_x, sc.image_y
                 tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).exists() else ""
             ov_img.save(overlay_png, "PNG")
             write_export_log(log_path, f"Scena {idx + 1}/{len(entries)} overlay pronto" + (f" (sequenza karaoke: {count} fotogrammi)" if overlay_sequence else ""))
@@ -687,7 +708,7 @@ def export_project_to_mp4(
                 v_base = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps}[bg]"
             elif has_media and entry.media_type == "image":
                 args += ["-loop", "1", "-t", f"{dur:.2f}", "-i", entry.media_path]
-                v_base = f"[0:v]{_zoompan_filter(kb_mode, w, h, fps, frames, sc.image_zoom, sc.image_x, sc.image_y)}[bg]"
+                v_base = f"[0:v]{_zoompan_filter(kb_mode, w, h, fps, frames, image_zoom, image_x, image_y)}[bg]"
             else:
                 bg_hex = project.settings.bg_fallback_color.lstrip("#")
                 args += ["-f", "lavfi", "-t", f"{dur:.2f}", "-i", f"color=c=0x{bg_hex}:s={w}x{h}:r={fps}"]
