@@ -642,6 +642,12 @@ class MainWindow(QMainWindow):
         self.cmb_quick_style.setToolTip("Stile visivo sulla TV")
         self.cmb_quick_style.currentTextChanged.connect(self._on_quick_style_changed)
         tb.addWidget(self.cmb_quick_style)
+        self.lbl_version = QLabel(f"v{__version__}")
+        self.lbl_version.setObjectName("VersionLabel")
+        self.lbl_version.setToolTip("Versione di VideoLibro Studio")
+        self.lbl_version.setStyleSheet("QLabel#VersionLabel { color: #AAB4C8; padding: 0 6px; }")
+        self._version_action = tb.addWidget(self.lbl_version)
+        self._version_action.setVisible(False)
         self.btn_fullscreen = QPushButton()
         self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
         tb.addWidget(self.btn_fullscreen)
@@ -650,6 +656,8 @@ class MainWindow(QMainWindow):
         self.btn_update.setVisible(False)
         self.btn_update.clicked.connect(self.open_latest_release)
         tb.addWidget(self.btn_update)
+        tb.addSeparator()
+        self._version_action.setVisible(True)
 
     def check_for_updates(self) -> None:
         try:

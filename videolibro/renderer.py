@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -375,18 +376,25 @@ def render_scene_overlay(
 
 def _draw_karaoke_line(draw, line, x, y, font, active_word_index, base_fill,
                        active_fill, shadow=False):
-    """Draw a line with the currently spoken word in the project accent color."""
+    """Draw a line with a readable three-word karaoke reading window."""
     if active_word_index is None:
         if shadow:
             draw.text((x + 1, y + 2), line, font=font, fill=(0, 0, 0, 200))
         draw.text((x, y), line, font=font, fill=base_fill)
         return
     words = line.split()
+    active_indices = (
+        set(range(max(0, active_word_index - 1), min(len(words), active_word_index + 2)))
+        if 0 <= active_word_index < len(words)
+        else set()
+    )
     space_width = draw.textlength(" ", font=font)
     cursor = x
     for index, word in enumerate(words):
-        is_active = index == active_word_index
-        fill = active_fill if is_active else base_fill
+        is_active = index in active_indices
+        # The karaoke pill is light yellow, so use a dedicated dark foreground
+        # instead of the normal white text/accent color.
+        fill = (48, 35, 20, 255) if is_active else base_fill
         # Draw the style shadow first so the karaoke background fully covers
         # it; otherwise its offset glyph appears doubled inside the highlight.
         if shadow and not is_active:
@@ -397,8 +405,8 @@ def _draw_karaoke_line(draw, line, x, y, font, active_word_index, base_fill,
             draw.rounded_rectangle(
                 (bbox[0] - pad_x, bbox[1] - pad_y, bbox[2] + pad_x, bbox[3] + pad_y),
                 radius=5,
-                fill=(255, 226, 64, 220),
-                outline=(25, 31, 42, 220),
+                fill=(255, 226, 64, 255),
+                outline=(255, 226, 64, 255),
                 width=2,
             )
         draw.text((cursor, y), word, font=font, fill=fill)
@@ -684,22 +692,31 @@ def export_project_to_mp4(
             else:
                 sc = ch.scenes[entry.scene_index or 0]
                 tts_path = sc.tts_audio_path if sc.tts_audio_path and Path(sc.tts_audio_path).is_file() else ""
-                overlay_sequence = bool(project.settings.karaoke_enabled and sc.word_timings and tts_path)
+                overlay_sequence = bool(project.settings.karaoke_enabled and sc.text.strip())
                 if overlay_sequence:
-                    overlay_fps = 10
+                    overlay_fps = fps
                     count = max(1, int(round(dur * overlay_fps)))
                     for frame_index in range(count):
                         elapsed = frame_index / overlay_fps
-                        active_word = next(
-                            (
-                                word_index
-                                for word_index, timing in enumerate(sc.word_timings)
-                                if float(timing.get("offset_sec", 0.0)) <= elapsed
-                                < float(timing.get("offset_sec", 0.0))
-                                + max(0.05, float(timing.get("duration_sec", 0.0)))
-                            ),
-                            None,
-                        )
+                        if sc.word_timings and tts_path:
+                            active_word = next(
+                                (
+                                    word_index
+                                    for word_index, timing in enumerate(sc.word_timings)
+                                    if float(timing.get("offset_sec", 0.0)) <= elapsed
+                                    < float(timing.get("offset_sec", 0.0))
+                                    + max(0.05, float(timing.get("duration_sec", 0.0)))
+                                ),
+                                None,
+                            )
+                        else:
+                            # TTS engines without word boundaries still get a
+                            # usable timed karaoke effect across the scene.
+                            speech_dur = max(0.1, min(dur, sc.tts_duration_sec or dur))
+                            active_word = min(
+                                max(0, len(sc.text.split()) - 1),
+                                int(elapsed / speech_dur * len(sc.text.split())),
+                            ) if elapsed < speech_dur else None
                         frame = render_scene_overlay(
                             project, ch, sc, entry.end_sec / total_dur, w, h, active_word
                         )
@@ -731,13 +748,19 @@ def export_project_to_mp4(
             # Overlay input 1
             if overlay_sequence:
                 args += ["-framerate", str(overlay_fps), "-i", str(tmp_dir / f"overlay_{idx:04d}_%05d.png")]
+                # Numbered PNG inputs need their input cadence retained;
+                # otherwise FFmpeg treats them as 25 fps and fades/flattens
+                # the karaoke progression before the output frame rate step.
+                v_base = v_base.replace("[bg]", f"[bg];[1:v]fps={fps}[karaoke]", 1)
+                overlay_input = "[karaoke]"
             else:
                 args += ["-loop", "1", "-t", f"{dur:.2f}", "-i", str(overlay_png)]
+                overlay_input = "[1:v]"
 
             fade_out_st = max(0.1, dur - 0.35)
             v_filter = (
                 f"{v_base};"
-                f"[1:v]format=rgba,fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st={fade_out_st:.2f}:d=0.35:alpha=1[ov];"
+                f"{overlay_input}format=rgba,fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st={fade_out_st:.2f}:d=0.35:alpha=1[ov];"
                 f"[bg][ov]overlay=0:0:shortest=1,trim=duration={dur:.2f},setpts=PTS-STARTPTS[vout]"
             )
 
