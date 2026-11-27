@@ -2063,8 +2063,8 @@ class MainWindow(QMainWindow):
             return
         ext = options.output_format
         default_out = self.workspace_dir / f"{self.project.title.replace(' ', '_')}.{ext}"
-        filter_text = "Video MP4 (*.mp4)" if ext == "mp4" else "Video MKV (*.mkv)"
-        out_path, _ = QFileDialog.getSaveFileName(self, "Esporta VideoLibro", str(default_out), filter_text)
+        filter_text = {"mp3": "Audiolibro MP3 (*.mp3)", "mp4": "Video MP4 (*.mp4)", "mkv": "Video MKV (*.mkv)"}[ext]
+        out_path, _ = QFileDialog.getSaveFileName(self, "Esporta Audiolibro" if ext == "mp3" else "Esporta VideoLibro", str(default_out), filter_text)
         if not out_path:
             return
         if Path(out_path).suffix.lower() != f".{ext}":
@@ -2113,8 +2113,9 @@ class MainWindow(QMainWindow):
         self._refresh_timeline_and_preview()
         ans = QMessageBox.information(
             self,
-            "VideoLibro Pronto!",
-            f"Il tuo VideoLibro MP4 è stato generato:\n{out_path}\n\nVuoi aprire la cartella di destinazione?",
+            "Audiolibro Pronto!" if Path(out_path).suffix.lower() == ".mp3" else "VideoLibro Pronto!",
+            f"Il tuo audiolibro MP3 è stato generato:\n{out_path}\n\nVuoi aprire la cartella di destinazione?"
+            if Path(out_path).suffix.lower() == ".mp3" else f"Il tuo VideoLibro {Path(out_path).suffix[1:].upper()} è stato generato:\n{out_path}\n\nVuoi aprire la cartella di destinazione?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if ans == QMessageBox.StandardButton.Yes:

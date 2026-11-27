@@ -608,7 +608,15 @@ def export_project_to_mp4(
     log_path = out_path.with_name(f"{out_path.stem}_export.log")
     write_export_log(log_path, "=" * 60)
     write_export_log(log_path, f"Avvio esportazione: {out_path}")
+    if output_format.lower() == "mp3":
+        return export_project_to_mp3(
+            project, out_path, generate_missing_tts, progress_cb, size_cb, cancel_event
+        )
     write_export_log(log_path, f"Risoluzione {project.settings.resolution}, {project.settings.fps} fps, profilo {speed_mode}")
+    if output_format.lower() == "mp3":
+        return export_project_to_mp3(
+            project, out_path, generate_missing_tts, progress_cb, size_cb, cancel_event
+        )
     w, h = project.settings.width, project.settings.height
     fps = project.settings.fps
     output_format = "mkv" if output_format.lower() == "mkv" else "mp4"
@@ -891,3 +899,124 @@ def export_project_to_mp4(
         progress_cb(100, f"VideoLibro completato: {out_path.name}")
     write_export_log(log_path, f"Esportazione completata: {out_path} ({out_path.stat().st_size} byte)")
     return out_path
+
+
+def export_project_to_mp3(
+    project: VideoBookProject,
+    output_mp3: str | Path,
+    generate_missing_tts: bool = True,
+    progress_cb: ProgressCallback | None = None,
+    size_cb: SizeCallback | None = None,
+    cancel_event: threading.Event | None = None,
+) -> Path:
+    """Export narration and timeline background music as a single MP3 audiobook."""
+    out_path = Path(output_mp3)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path = out_path.with_name(f"{out_path.stem}_export.log")
+    write_export_log(log_path, "Avvio esportazione audiolibro MP3")
+    tmp_dir_obj = tempfile.TemporaryDirectory(prefix="videolibro_audio_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    try:
+        entries = project.compute_timeline()
+        scenes = [project.chapters[e.chapter_index].scenes[e.scene_index or 0] for e in entries if e.kind != "title_card"]
+        missing = [scene for scene in scenes if not scene.tts_audio_path or not Path(scene.tts_audio_path).is_file()]
+        if missing and not generate_missing_tts:
+            raise ValueError("Alcune scene non hanno ancora una voce narrante generata.")
+        for index, scene in enumerate(missing):
+            if cancel_event and cancel_event.is_set():
+                raise ExportCancelledError("Esportazione annullata dall'utente.")
+            if progress_cb:
+                progress_cb(int(5 + 25 * index / max(1, len(missing))), f"Sintesi vocale TTS ({index + 1}/{len(missing)})...")
+            audio_path, duration, timings = synthesize_scene_tts(
+                scene.text, tmp_dir / "tts", scene.id,
+                voice=project.settings.tts_voice, rate=project.settings.tts_rate,
+                engine=project.settings.tts_engine,
+            )
+            scene.tts_audio_path = audio_path
+            scene.tts_duration_sec = duration
+            scene.word_timings = timings
+
+        # Preserve newly generated narration beyond the temporary working directory.
+        tts_store = out_path.parent / f"{out_path.stem}_tts"
+        for scene in scenes:
+            source = Path(scene.tts_audio_path) if scene.tts_audio_path else None
+            if source and source.is_file() and source.is_relative_to(tmp_dir):
+                tts_store.mkdir(parents=True, exist_ok=True)
+                destination = tts_store / f"{scene.id}{source.suffix}"
+                shutil.copy2(source, destination)
+                scene.tts_audio_path = str(destination)
+
+        entries = [entry for entry in entries if entry.kind != "title_card"]
+        if not entries:
+            raise ValueError("Il progetto non contiene scene da esportare.")
+        segments: list[Path] = []
+        for index, entry in enumerate(entries):
+            if cancel_event and cancel_event.is_set():
+                raise ExportCancelledError("Esportazione annullata dall'utente.")
+            duration = entry.duration_sec
+            scene = project.chapters[entry.chapter_index].scenes[entry.scene_index or 0]
+            args: list[str] = []
+            filters: list[str] = []
+            labels: list[str] = []
+            next_input = 0
+            tts_path = scene.tts_audio_path if scene.tts_audio_path and Path(scene.tts_audio_path).is_file() else ""
+            has_tts = bool(tts_path)
+            if has_tts:
+                args += ["-i", tts_path]
+                filters.append(f"[0:a]apad=whole_dur={duration:.2f},atrim=0:{duration:.2f}[tts]")
+                labels.append("[tts]")
+                next_input = 1
+            has_music = bool(entry.bg_audio_path and Path(entry.bg_audio_path).is_file())
+            if has_music:
+                args += ["-stream_loop", "-1", "-ss", f"{entry.start_sec:.2f}", "-t", f"{duration:.2f}", "-i", entry.bg_audio_path]
+                volume = entry.bg_audio_volume
+                if has_tts and project.settings.auto_ducking:
+                    volume *= project.settings.ducking_factor
+                filters.append(f"[{next_input}:a]volume={volume:.3f},atrim=0:{duration:.2f}[bgm]")
+                labels.append("[bgm]")
+                next_input += 1
+            segment = tmp_dir / f"audio_{index:04d}.mp3"
+            if len(labels) == 2:
+                filters.append("[tts][bgm]amix=inputs=2:duration=first:normalize=0[aout]")
+                audio_map = "[aout]"
+            elif labels:
+                filters.append(f"{labels[0]}anull[aout]")
+                audio_map = "[aout]"
+            else:
+                args += ["-f", "lavfi", "-t", f"{duration:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
+                filters.append(f"[{next_input}:a]atrim=0:{duration:.2f}[aout]")
+                audio_map = "[aout]"
+            args += ["-filter_complex", ";".join(filters)] if filters else []
+            args += ["-map", audio_map, "-vn", "-c:a", "libmp3lame", "-b:a", "192k", "-t", f"{duration:.2f}", str(segment)]
+            if progress_cb:
+                progress_cb(int(30 + 60 * index / len(entries)), f"Preparazione audio {index + 1}/{len(entries)}...")
+            progress_file = tmp_dir / "ffmpeg_progress.txt"
+            _run_ffmpeg(
+                ["-progress", str(progress_file), "-stats_period", "0.5", "-nostats", *args],
+                cancel_event=cancel_event, progress_file=progress_file, duration_sec=duration,
+                progress_cb=lambda fraction, i=index: progress_cb(
+                    int(30 + 60 * (i + fraction) / len(entries)),
+                    f"Preparazione audio {i + 1}/{len(entries)}...",
+                ) if progress_cb else None,
+                log_path=log_path, log_label=f"Audio {index + 1}/{len(entries)}",
+            )
+            segments.append(segment)
+            if size_cb and segment.exists():
+                size_cb(sum(p.stat().st_size for p in segments if p.exists()))
+
+        concat = tmp_dir / "audio_concat.txt"
+        concat.write_text("\n".join(f"file '{p.as_posix()}'" for p in segments), encoding="utf-8")
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{out_path.stem}_rendering_", suffix=".mp3", dir=out_path.parent)
+        os.close(temp_fd)
+        temp_output = Path(temp_name)
+        try:
+            _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(concat), "-c", "copy", str(temp_output)], cancel_event=cancel_event, log_path=log_path, log_label="Assemblaggio audiolibro")
+            temp_output.replace(out_path)
+        except Exception:
+            temp_output.unlink(missing_ok=True)
+            raise
+        if progress_cb:
+            progress_cb(100, "Audiolibro MP3 completato.")
+        return out_path
+    finally:
+        tmp_dir_obj.cleanup()

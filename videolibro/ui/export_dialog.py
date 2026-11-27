@@ -54,6 +54,7 @@ class ExportOptionsDialog(QDialog):
 
         form = QFormLayout()
         self.cmb_format = QComboBox()
+        self.cmb_format.addItem("Audiolibro MP3 — solo audio" if not is_en else "MP3 audiobook — audio only", "mp3")
         self.cmb_format.addItem("MP4 — H.264/AAC (consigliato)" if not is_en else "MP4 — H.264/AAC (recommended)", "mp4")
         self.cmb_format.addItem("MKV — H.264/AAC", "mkv")
         form.addRow("Formato:" if not is_en else "Format:", self.cmb_format)
@@ -93,6 +94,19 @@ class ExportOptionsDialog(QDialog):
 
     def _update_details(self) -> None:
         is_en = self._lang == "en"
+        if self.output_format == "mp3":
+            self.lbl_details.setText(
+                "Verranno unite le voci narranti e la musica di sottofondo, senza renderizzare il video."
+                if not is_en else "Narration and background music will be combined without rendering video."
+            )
+            return
+        if self.output_format == "mkv":
+            format_note = (
+                "MKV uses the same video and audio codecs as MP4; the container alone does not speed up encoding."
+                if is_en else "MKV usa gli stessi codec video e audio di MP4: il solo contenitore non accelera la codifica."
+            )
+        else:
+            format_note = ""
         mult = 0.40 if self.speed_mode == "quick" else 0.35
         size_mb = max(1.0, self._duration_sec * mult)
         low, high = ((0.4, 2.0) if self.speed_mode == "quick" else (0.8, 3.0))
@@ -102,10 +116,6 @@ class ExportOptionsDialog(QDialog):
             profile_note = "Faster encoding; the file may be larger and image quality slightly lower." if is_en else "Codifica più rapida; il file può essere più grande e la qualità leggermente inferiore."
         else:
             profile_note = "Balanced quality and file size." if is_en else "Equilibrio tra qualità e dimensione del file."
-        format_note = (
-            "MKV uses the same video and audio codecs as MP4; the container alone does not speed up encoding."
-            if is_en else "MKV usa gli stessi codec video e audio di MP4: il solo contenitore non accelera la codifica."
-        ) if self.output_format == "mkv" else ""
         text = f"{profile_note}\n{('Estimated size' if is_en else 'Dimensione indicativa')}: ~{size_mb:.0f} MB  •  {('initial time range' if is_en else 'tempo iniziale indicativo')}: {estimate}."
         if format_note:
             text += f"\n{format_note}"
